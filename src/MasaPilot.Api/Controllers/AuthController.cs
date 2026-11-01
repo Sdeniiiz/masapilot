@@ -37,10 +37,25 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "İşletme adı, e-posta ve şifre zorunludur." });
         }
 
-        var slug = (request.Slug ?? request.TenantName.ToLowerInvariant().Replace(" ", "-")).Trim();
-        if (await _db.Tenants.AnyAsync(t => t.Slug == slug))
+        var rawSlug = (!string.IsNullOrWhiteSpace(request.Slug) ? request.Slug : request.TenantName)
+            .ToLowerInvariant()
+            .Replace(" ", "-")
+            .Replace("ç", "c")
+            .Replace("ğ", "g")
+            .Replace("ı", "i")
+            .Replace("ö", "o")
+            .Replace("ş", "s")
+            .Replace("ü", "u")
+            .Trim();
+
+        var baseSlug = System.Text.RegularExpressions.Regex.Replace(rawSlug, @"[^a-z0-9\-]", "");
+        if (string.IsNullOrWhiteSpace(baseSlug)) baseSlug = "isletme";
+
+        var slug = baseSlug;
+        int counter = 1;
+        while (await _db.Tenants.AnyAsync(t => t.Slug == slug))
         {
-            return Conflict(new { message = "Bu işletme kısa adı (slug) zaten kullanımda." });
+            slug = $"{baseSlug}-{counter++}";
         }
 
         // Create Tenant

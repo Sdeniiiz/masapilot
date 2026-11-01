@@ -111,8 +111,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
 
     setIsSubmitting(true);
     try {
+      const slug = regTenantName
+        .toLowerCase()
+        .trim()
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+
       const res = await api.register({
         tenantName: regTenantName.trim(),
+        slug: slug || undefined,
         branchName: regBranchName.trim() || 'Merkez Şube',
         adminFullName: regFullName.trim(),
         adminEmail: regEmail.trim(),

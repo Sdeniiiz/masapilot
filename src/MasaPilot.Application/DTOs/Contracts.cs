@@ -4,7 +4,16 @@ using MasaPilot.Domain.Enums;
 
 namespace MasaPilot.Application.DTOs;
 
-public record RegisterTenantRequest(string TenantName, string Slug, string BranchName, string AdminFullName, string AdminEmail, string AdminPassword, string CurrencyCode = "TRY", string TimeZone = "Europe/Istanbul");
+public record RegisterTenantRequest(
+    string TenantName, 
+    string? Slug = null, 
+    string? BranchName = "Merkez Şube", 
+    string AdminFullName = "Yönetici", 
+    string AdminEmail = "", 
+    string AdminPassword = "", 
+    string CurrencyCode = "TRY", 
+    string TimeZone = "Europe/Istanbul"
+);
 
 public record LoginRequest(string Email, string Password);
 public record PinLoginRequest(Guid BranchId, string Pin);

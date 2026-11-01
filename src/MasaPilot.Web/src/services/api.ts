@@ -56,7 +56,12 @@ class ApiClient {
         let errorMsg = `İşlem başarısız (${response.status})`;
         try {
           const errData = await response.json();
-          errorMsg = errData.message || errData.title || JSON.stringify(errData);
+          if (errData.errors && typeof errData.errors === 'object') {
+            const fieldErrors = Object.values(errData.errors).flat().join(' ');
+            errorMsg = fieldErrors || errData.title || errData.message;
+          } else {
+            errorMsg = errData.message || errData.title || JSON.stringify(errData);
+          }
         } catch {
           errorMsg = await response.text() || errorMsg;
         }
