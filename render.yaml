@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: masapilot
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: PORT
+        value: 8080
+      - key: RuntimeMode
+        value: Edge
+      - key: ConnectionStrings__DefaultConnection
+        value: "Data Source=/app/data/masapilot.db;Cache=Shared"
+    disk:
+      name: masapilot-data
+      mountPath: /app/data
+      sizeGB: 1

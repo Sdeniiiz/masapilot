@@ -1,0 +1,18 @@
+{
+  "name": "TıklaYönet Restoran Otomasyonu",
+  "short_name": "TıklaYönet",
+  "description": "Offline-First Hibrit Restoran POS, Sipariş & Adisyon Sistemi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#7C1C1D",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

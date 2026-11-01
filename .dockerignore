@@ -1,0 +1,11 @@
+**/.git
+**/.vs
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/*.user
+**/*.db-shm
+**/*.db-wal
+**/uploads/*
+!**/uploads/.gitkeep
