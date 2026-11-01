@@ -55,7 +55,7 @@ public class MasaPilotDbContext : DbContext
         modelBuilder.Entity<TableSession>(entity =>
         {
             entity.HasIndex(e => new { e.BranchId, e.DiningTableId })
-                  .HasFilter("DiningTableId IS NOT NULL AND Status = 1") // Status 1 = Open
+                  .HasFilter(@"""DiningTableId"" IS NOT NULL AND ""Status"" = 1") // Status 1 = Open
                   .IsUnique();
 
             entity.HasOne(e => e.DiningTable)

@@ -10,12 +10,24 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuration
+var rawDbUrl = builder.Configuration["DATABASE_URL"];
 var runtimeMode = builder.Configuration["RuntimeMode"] ?? "Edge"; // "Edge" or "Cloud"
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Data Source=masapilot.db;Cache=Shared";
+
+if (!string.IsNullOrWhiteSpace(rawDbUrl))
+{
+    runtimeMode = "Cloud";
+}
+
+var rawConnectionString = !string.IsNullOrWhiteSpace(rawDbUrl)
+    ? rawDbUrl
+    : (builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=masapilot.db;Cache=Shared");
+
+var connectionString = ConvertToNpgsqlConnectionStringIfNeeded(rawConnectionString);
 
 // 1. Database Context
 builder.Services.AddDbContext<MasaPilotDbContext>((sp, options) =>
@@ -188,4 +200,31 @@ if (Directory.Exists(wwwrootDir))
 app.Run();
 
 // Required for WebApplicationFactory in integration tests
-public partial class Program { }
+public partial class Program
+{
+    public static string ConvertToNpgsqlConnectionStringIfNeeded(string connStr)
+    {
+        if (string.IsNullOrWhiteSpace(connStr)) return connStr;
+        if (!connStr.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) &&
+            !connStr.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            return connStr;
+        }
+
+        try
+        {
+            var uri = new Uri(connStr);
+            var userInfo = uri.UserInfo.Split(':');
+            var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
+            var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+            var port = uri.Port > 0 ? uri.Port : 5432;
+            var database = uri.AbsolutePath.TrimStart('/');
+
+            return $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;";
+        }
+        catch
+        {
+            return connStr;
+        }
+    }
+}

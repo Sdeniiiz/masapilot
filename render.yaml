@@ -1,3 +1,10 @@
+databases:
+  - name: masapilot-db
+    plan: free
+    region: frankfurt
+    databaseName: masapilot
+    user: masapilot_user
+
 services:
   - type: web
     name: masapilot
@@ -11,10 +18,12 @@ services:
       - key: PORT
         value: 8080
       - key: RuntimeMode
-        value: Edge
+        value: Cloud
+      - key: DATABASE_URL
+        fromDatabase:
+          name: masapilot-db
+          property: connectionString
       - key: ConnectionStrings__DefaultConnection
-        value: "Data Source=/app/data/masapilot.db;Cache=Shared"
-    disk:
-      name: masapilot-data
-      mountPath: /app/data
-      sizeGB: 1
+        fromDatabase:
+          name: masapilot-db
+          property: connectionString
