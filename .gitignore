@@ -24,6 +24,8 @@ yarn-error.log*
 *.db-wal
 **/uploads/*
 !**/uploads/.gitkeep
+**/backups/*
+!**/backups/.gitkeep
 
 # OS specific files
 .DS_Store

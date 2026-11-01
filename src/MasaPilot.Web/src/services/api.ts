@@ -221,10 +221,10 @@ class ApiClient {
     return this.request<SessionDetail>(`/sessions/${sessionId}`);
   }
 
-  async addOrder(sessionId: string, lines: { productId: string; quantity: number; notes?: string }[], idempotencyKey?: string): Promise<SessionDetail> {
+  async addOrder(sessionId: string, lines: { productId: string; quantity: number; notes?: string }[], idempotencyKey?: string, orderNotes?: string): Promise<SessionDetail> {
     const res = await this.request<SessionDetail>(`/sessions/${sessionId}/orders`, {
       method: 'POST',
-      body: JSON.stringify({ tableSessionId: sessionId, lines, idempotencyKey }),
+      body: JSON.stringify({ tableSessionId: sessionId, lines, idempotencyKey, orderNotes }),
     });
     this.notify('success', 'Sipariş mutfağa ve bara iletildi.');
     return res;

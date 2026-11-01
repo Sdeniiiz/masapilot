@@ -95,6 +95,7 @@ export interface OrderSummary {
   createdAtUtc: string;
   status: OrderStatus;
   lines: OrderLineSummary[];
+  notes?: string;
 }
 
 export interface OrderLineSummary {

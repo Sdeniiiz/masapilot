@@ -37,10 +37,10 @@ public record OpenSessionRequest(Guid DiningTableId, string? Notes = null);
 public record TransferTableRequest(Guid TargetTableId);
 public record SessionDetailDto(Guid Id, Guid? DiningTableId, string? TableNumber, string SessionNumber, DateTime OpenedAtUtc, SessionStatus Status, decimal SubTotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal, decimal PaidTotal, decimal RemainingTotal, List<OrderSummaryDto> Orders, List<PaymentSummaryDto> Payments);
 
-public record AddOrderRequest(Guid TableSessionId, List<OrderLineInput> Lines, string? IdempotencyKey = null);
+public record AddOrderRequest(Guid TableSessionId, List<OrderLineInput> Lines, string? IdempotencyKey = null, string? OrderNotes = null);
 public record OrderLineInput(Guid ProductId, decimal Quantity, string? Notes = null);
 
-public record OrderSummaryDto(Guid Id, string OrderNumber, DateTime CreatedAtUtc, OrderStatus Status, List<OrderLineSummaryDto> Lines);
+public record OrderSummaryDto(Guid Id, string OrderNumber, DateTime CreatedAtUtc, OrderStatus Status, List<OrderLineSummaryDto> Lines, string? Notes = null);
 public record OrderLineSummaryDto(Guid Id, Guid ProductId, string ProductName, decimal Quantity, decimal UnitPrice, decimal VatRate, decimal LineTotal, string? Notes, Guid? KitchenStationId, string? StationName, OrderLineStatus Status, string? VoidReason);
 
 public record VoidLineRequest(string Reason);

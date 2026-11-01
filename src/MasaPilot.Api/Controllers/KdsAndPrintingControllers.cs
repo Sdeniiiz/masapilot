@@ -77,6 +77,7 @@ public class KdsController : ControllerBase
             TableNumber = g.Key.TableSession?.DiningTable?.TableNumber ?? "Paket",
             CreatedAtUtc = g.Key.CreatedAtUtc,
             ElapsedMinutes = (int)(DateTime.UtcNow - g.Key.CreatedAtUtc).TotalMinutes,
+            OrderNotes = g.Key.Notes,
             Lines = g.Select(l => new
             {
                 LineId = l.Id,

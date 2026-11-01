@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
-import { Area, DiningTable, Category, Product, SessionDetail, CartLine, PaymentMethod } from '../../types';
+import { Area, DiningTable, Category, Product, SessionDetail, CartLine, PaymentMethod, NoteTemplate } from '../../types';
 import {
   Search,
   Plus,
@@ -13,7 +13,9 @@ import {
   Pencil,
   X,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Check
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 
@@ -35,7 +37,14 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
 
   // Unsent Cart
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [orderNote, setOrderNote] = useState('');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // Note Templates & Item Note Modal
+  const [noteTemplates, setNoteTemplates] = useState<NoteTemplate[]>([]);
+  const [isItemNoteModalOpen, setIsItemNoteModalOpen] = useState(false);
+  const [editingCartProductId, setEditingCartProductId] = useState<string | null>(null);
+  const [itemNoteText, setItemNoteText] = useState('');
 
   // Modals
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -114,14 +123,18 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
 
   const loadMenu = async () => {
     try {
-      const [cats, prods, payMethods] = await Promise.all([
+      const [cats, prods, payMethods, noteTemps] = await Promise.all([
         api.getCategories(),
         api.getProducts(),
         api.getPaymentMethods(),
+        api.getNoteTemplates().catch(() => []),
       ]);
       setCategories(cats);
       setProducts(prods);
       setPaymentMethods(payMethods);
+      if (noteTemps && Array.isArray(noteTemps)) {
+        setNoteTemplates(noteTemps);
+      }
       if (cats.length > 0 && !selectedCategoryId) {
         setSelectedCategoryId(cats[0].id);
       }
@@ -142,6 +155,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   const handleSelectTable = async (table: DiningTable) => {
     setSelectedTable(table);
     setCart([]);
+    setOrderNote('');
     try {
       const session = await api.openSession(table.id);
       setActiveSession(session);
@@ -155,6 +169,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
     setSelectedTable(null);
     setActiveSession(null);
     setCart([]);
+    setOrderNote('');
     loadTables();
   };
 
@@ -196,6 +211,54 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
 
   const handleClearCart = () => {
     setCart([]);
+    setOrderNote('');
+  };
+
+  // Note helpers
+  const editingCartItem = useMemo(() => {
+    return cart.find((c) => c.productId === editingCartProductId) || null;
+  }, [cart, editingCartProductId]);
+
+  const handleOpenItemNoteModal = (productId: string) => {
+    const item = cart.find((c) => c.productId === productId);
+    if (!item) return;
+    setEditingCartProductId(productId);
+    setItemNoteText(item.notes || '');
+    setIsItemNoteModalOpen(true);
+  };
+
+  const handleSaveItemNote = () => {
+    if (!editingCartProductId) return;
+    const finalNote = itemNoteText.trim();
+    setCart((prev) =>
+      prev.map((c) =>
+        c.productId === editingCartProductId
+          ? { ...c, notes: finalNote || undefined }
+          : c
+      )
+    );
+    setIsItemNoteModalOpen(false);
+  };
+
+  const handleClearItemNote = (productId: string) => {
+    setCart((prev) =>
+      prev.map((c) => (c.productId === productId ? { ...c, notes: undefined } : c))
+    );
+  };
+
+  const handleToggleNoteChip = (text: string) => {
+    setItemNoteText((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return text;
+      if (trimmed.includes(text)) {
+        return trimmed
+          .replace(text, '')
+          .replace(/^,\s*|,\s*$/g, '')
+          .replace(/,\s*,/g, ', ')
+          .trim();
+      }
+      return `${trimmed}, ${text}`;
+    });
   };
 
   // Product quantity in cart
@@ -213,10 +276,12 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
       const updatedSession = await api.addOrder(
         activeSession.id,
         cart.map((c) => ({ productId: c.productId, quantity: c.quantity, notes: c.notes })),
-        idempotencyKey
+        idempotencyKey,
+        orderNote.trim() || undefined
       );
       setActiveSession(updatedSession);
       setCart([]);
+      setOrderNote('');
       await loadTables();
     } catch (err) {
       console.error('Sipariş gönderilemedi:', err);
@@ -634,6 +699,33 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                       ₺{item.unitPrice.toFixed(2)} / adet
                     </div>
 
+                    {/* Item Note Badge if added */}
+                    {item.notes && (
+                      <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-xs text-amber-900">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span className="font-semibold truncate">Not: {item.notes}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenItemNoteModal(item.productId)}
+                            className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline"
+                          >
+                            Düzenle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleClearItemNote(item.productId)}
+                            className="p-0.5 text-amber-600 hover:text-rose-600 rounded"
+                            title="Notu kaldır"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-1">
                       {/* Quantity pill */}
                       <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 px-1 py-0.5">
@@ -652,15 +744,25 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                         </button>
                       </div>
 
-                      <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
-                        <input type="checkbox" className="rounded text-burgundy-800" />
-                        <span>İkram</span>
-                      </label>
+                      {/* Not Ekle / Değiştir butonu */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenItemNoteModal(item.productId)}
+                        className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg border transition ${
+                          item.notes
+                            ? 'bg-amber-100/70 border-amber-300 text-amber-800'
+                            : 'bg-slate-50 hover:bg-amber-50/80 border-slate-200 hover:border-amber-300 text-slate-600 hover:text-amber-900'
+                        }`}
+                      >
+                        <FileText className="w-3 h-3 text-amber-600" />
+                        <span>{item.notes ? 'Notu Değiştir' : '+ Not Ekle'}</span>
+                      </button>
 
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleUpdateCartQuantity(item.productId, -item.quantity)}
                           className="text-slate-400 hover:text-rose-600 p-1"
+                          title="Ürünü sepetten çıkar"
                         >
                           <X className="w-3.5 h-3.5 text-rose-600" />
                         </button>
@@ -669,6 +771,34 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                   </div>
                 ))}
 
+                {/* Genel Sipariş Notu Girişi */}
+                {cart.length > 0 && (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-2xl space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-900">
+                      <span className="flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-amber-700" />
+                        Genel Sipariş / Mutfak Notu
+                      </span>
+                      {orderNote && (
+                        <button
+                          type="button"
+                          onClick={() => setOrderNote('')}
+                          className="text-[10px] text-amber-700 hover:text-rose-600 font-semibold hover:underline"
+                        >
+                          Temizle
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={orderNote}
+                      onChange={(e) => setOrderNote(e.target.value)}
+                      placeholder="Örn: Acele edilsin, tüm yemekler aynı anda çıksın..."
+                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-amber-300/80 bg-white placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+
                 {/* 2. Sent items already on table */}
                 {activeSession && activeSession.orders.length > 0 && (
                   <div className="pt-2">
@@ -676,45 +806,58 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                       Masadaki Siparişler
                     </div>
                     <div className="space-y-2">
-                      {activeSession.orders
-                        .flatMap((o) => o.lines)
-                        .map((line) => {
-                          const isVoided = line.status === 'Voided';
-
-                          return (
-                            <div
-                              key={line.id}
-                              className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
-                                isVoided
-                                  ? 'bg-rose-50/50 border-rose-200 line-through text-slate-400'
-                                  : 'bg-slate-50/80 border-slate-200 text-slate-800'
-                              }`}
-                            >
-                              <div>
-                                <span className="font-bold">{line.quantity}x </span>
-                                <span>{line.productName}</span>
-                                {isVoided && line.voidReason && (
-                                  <div className="text-[10px] text-rose-600 not-italic font-semibold">
-                                    İptal: {line.voidReason}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold">₺{line.lineTotal.toFixed(2)}</span>
-                                {!isVoided && (
-                                  <button
-                                    onClick={() => handleOpenVoidModal(line.id)}
-                                    className="text-slate-400 hover:text-rose-600 p-0.5"
-                                    title="Satırı İptal Et"
-                                  >
-                                    <X className="w-3.5 h-3.5 text-rose-500" />
-                                  </button>
-                                )}
-                              </div>
+                      {activeSession.orders.map((ord) => (
+                        <div key={ord.id} className="space-y-1.5">
+                          {ord.notes && (
+                            <div className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold flex items-center gap-1.5">
+                              <FileText className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>Sipariş Notu: {ord.notes}</span>
                             </div>
-                          );
-                        })}
+                          )}
+                          {ord.lines.map((line) => {
+                            const isVoided = line.status === 'Voided';
+
+                            return (
+                              <div
+                                key={line.id}
+                                className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                                  isVoided
+                                    ? 'bg-rose-50/50 border-rose-200 line-through text-slate-400'
+                                    : 'bg-slate-50/80 border-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <div className="flex-1 pr-2">
+                                  <span className="font-bold">{line.quantity}x </span>
+                                  <span>{line.productName}</span>
+                                  {line.notes && (
+                                    <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/90 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
+                                      📝 {line.notes}
+                                    </div>
+                                  )}
+                                  {isVoided && line.voidReason && (
+                                    <div className="text-[10px] text-rose-600 not-italic font-semibold">
+                                      İptal: {line.voidReason}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold">₺{line.lineTotal.toFixed(2)}</span>
+                                  {!isVoided && (
+                                    <button
+                                      onClick={() => handleOpenVoidModal(line.id)}
+                                      className="text-slate-400 hover:text-rose-600 p-0.5"
+                                      title="Satırı İptal Et"
+                                    >
+                                      <X className="w-3.5 h-3.5 text-rose-500" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1036,6 +1179,97 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
               className="flex-1 py-2.5 rounded-xl bg-burgundy-800 hover:bg-burgundy-900 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
             >
               {isSubmittingTransfer ? 'Taşınıyor...' : 'Masayı Taşı'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL: Ürün Sipariş Notu Ekle / Düzenle */}
+      <Modal
+        isOpen={isItemNoteModalOpen}
+        onClose={() => setIsItemNoteModalOpen(false)}
+        title={
+          editingCartItem
+            ? `Sipariş Notu: ${editingCartItem.productName}`
+            : 'Sipariş Notu Ekle'
+        }
+      >
+        <div className="space-y-4">
+          {/* Hızlı Şablonlar / Hazır Notlar */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Hızlı Not Seçimi (Tek dokunuşla ekleyin):
+            </label>
+            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1.5 bg-slate-50 rounded-xl border border-slate-200">
+              {noteTemplates.length > 0 ? (
+                noteTemplates.map((t) => {
+                  const isSelected = itemNoteText.includes(t.title);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => handleToggleNoteChip(t.title)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:border-amber-300 hover:bg-amber-50'
+                      }`}
+                    >
+                      <span>{t.title}</span>
+                      {isSelected && <Check className="w-3 h-3 stroke-[2.5]" />}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="text-xs text-slate-400 py-1 px-2">
+                  Kayıtlı hızlı not şablonu bulunamadı.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Serbest Not Yazma Alanı */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Özel Not / Açıklama:
+            </label>
+            <textarea
+              rows={3}
+              value={itemNoteText}
+              onChange={(e) => setItemNoteText(e.target.value)}
+              placeholder="Örn: Az pişmiş, ketçap mayonez olmasın, acı sos ayrı gelsin..."
+              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-burgundy-800"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsItemNoteModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-100"
+            >
+              Vazgeç
+            </button>
+            {editingCartItem?.notes && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (editingCartProductId) {
+                    handleClearItemNote(editingCartProductId);
+                  }
+                  setIsItemNoteModalOpen(false);
+                }}
+                className="px-3 py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs"
+              >
+                Notu Kaldır
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveItemNote}
+              className="flex-1 py-2.5 rounded-xl bg-burgundy-800 hover:bg-burgundy-900 text-white font-bold text-xs shadow-xs"
+            >
+              Kaydet
             </button>
           </div>
         </div>

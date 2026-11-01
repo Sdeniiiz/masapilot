@@ -188,6 +188,17 @@ public class AuthController : ControllerBase
             new PaymentMethod { TenantId = tenant.Id, BranchId = branch.Id, Name = "Yemek Kartı (Sodexo / Multinet)", Type = PaymentType.MealVoucher }
         );
 
+        // 6. Default Note Templates for Quick Waiter Selection
+        _db.NoteTemplates.AddRange(
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Az Pişmiş", Content = "Az Pişmiş", DisplayOrder = 1, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Orta Pişmiş", Content = "Orta Pişmiş", DisplayOrder = 2, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "İyi Pişmiş", Content = "İyi Pişmiş", DisplayOrder = 3, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Buzsuz", Content = "Buzsuz", DisplayOrder = 4, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Acısız", Content = "Acısız", DisplayOrder = 5, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Sossuz", Content = "Sossuz / Ayrı Sos", DisplayOrder = 6, IsActive = true },
+            new NoteTemplate { TenantId = tenant.Id, BranchId = branch.Id, Title = "Alerjen Uyarısı", Content = "DİKKAT: Alerjen Hassasiyeti Var", DisplayOrder = 7, IsActive = true }
+        );
+
         // Audit Log
         _db.AuditLogs.Add(new AuditLog
         {

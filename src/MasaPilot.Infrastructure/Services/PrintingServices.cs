@@ -44,6 +44,10 @@ public class EscPosGenerator : IEscPosGenerator
         sb.AppendLine($"Masa: {(session.DiningTable?.TableNumber ?? "Paket/Gel-Al")}");
         sb.AppendLine($"Adisyon No: {session.SessionNumber} | Siparis: {order.OrderNumber}");
         sb.AppendLine($"Tarih: {DateTime.Now:dd.MM.yyyy HH:mm:ss}");
+        if (!string.IsNullOrWhiteSpace(order.Notes))
+        {
+            sb.AppendLine($"SIPARIS NOTU: {order.Notes}");
+        }
         sb.AppendLine("----------------------------------------");
 
         // Left Align for items

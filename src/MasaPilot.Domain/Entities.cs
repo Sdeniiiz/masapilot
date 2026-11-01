@@ -154,6 +154,7 @@ public class Order : BranchScopedEntity
     public Guid CreatedByUserId { get; set; }
     public OrderStatus Status { get; set; } = OrderStatus.Submitted;
     public string? IdempotencyKey { get; set; }
+    public string? Notes { get; set; }
 
     public TableSession? TableSession { get; set; }
     public ICollection<OrderLine> OrderLines { get; set; } = new List<OrderLine>();

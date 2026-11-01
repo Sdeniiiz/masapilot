@@ -166,7 +166,8 @@ public class SessionsController : ControllerBase
             OrderNumber = $"{session.SessionNumber}-{orderCount}",
             CreatedByUserId = userId.Value,
             Status = OrderStatus.Submitted,
-            IdempotencyKey = request.IdempotencyKey
+            IdempotencyKey = request.IdempotencyKey,
+            Notes = request.OrderNotes
         };
 
         var orderLines = new List<OrderLine>();
@@ -625,7 +626,8 @@ public class SessionsController : ControllerBase
                     l.KitchenStation?.Name,
                     l.Status,
                     l.VoidReason
-                )).ToList()
+                )).ToList(),
+                o.Notes
             )).ToList(),
             session.Payments.OrderBy(p => p.ProcessedAtUtc).Select(p => new PaymentSummaryDto(
                 p.Id,

@@ -137,6 +137,16 @@ using (var scope = app.Services.CreateScope())
             );
         ";
             cmd.ExecuteNonQuery();
+
+            try
+            {
+                cmd.CommandText = @"ALTER TABLE ""Orders"" ADD COLUMN ""Notes"" TEXT;";
+                cmd.ExecuteNonQuery();
+            }
+            catch
+            {
+                // Column already exists
+            }
         }
 
         // Seed authentic Galip Usta Pide Salonu default admin, branch, tables and menu

@@ -138,6 +138,13 @@ export const KdsScreen: React.FC = () => {
                     </div>
                   </div>
 
+                  {order.orderNotes && (
+                    <div className="px-4 py-2 bg-amber-500/20 border-b border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>Sipariş Notu: {order.orderNotes}</span>
+                    </div>
+                  )}
+
                   {/* Lines List */}
                   <div className="p-4 flex-1 space-y-2.5 overflow-y-auto max-h-[340px]">
                     {order.lines.map((line: any) => {
