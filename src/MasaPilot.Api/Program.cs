@@ -112,6 +112,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<MasaPilotDbContext>();
+    var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     db.Database.EnsureCreated();
 
     if (db.Database.IsSqlite())
@@ -138,8 +139,8 @@ using (var scope = app.Services.CreateScope())
             cmd.ExecuteNonQuery();
         }
 
-        // Seed authentic Galip Usta Pide Salonu menu
-        await GalipUstaSeeder.SeedMenuAsync(db);
+        // Seed authentic Galip Usta Pide Salonu default admin, branch, tables and menu
+        await GalipUstaSeeder.SeedAllAsync(db, hasher);
     }
 
 app.UseCors("AllowAllLocal");
