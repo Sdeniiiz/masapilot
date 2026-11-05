@@ -26,19 +26,22 @@ public class SessionsController : ControllerBase
     private readonly IEscPosGenerator _escPos;
     private readonly IHubContext<OrderHub> _orderHub;
     private readonly IHubContext<KitchenHub> _kitchenHub;
+    private readonly IPasswordHasher _hasher;
 
     public SessionsController(
         MasaPilotDbContext db,
         ICurrentTenantService tenantService,
         IEscPosGenerator escPos,
         IHubContext<OrderHub> orderHub,
-        IHubContext<KitchenHub> kitchenHub)
+        IHubContext<KitchenHub> kitchenHub,
+        IPasswordHasher hasher)
     {
         _db = db;
         _tenantService = tenantService;
         _escPos = escPos;
         _orderHub = orderHub;
         _kitchenHub = kitchenHub;
+        _hasher = hasher;
     }
 
     [HttpPost("open")]
@@ -177,10 +180,26 @@ public class SessionsController : ControllerBase
         {
             if (!products.TryGetValue(lineInput.ProductId, out var prod)) continue;
 
-            var unitPrice = prod.UnitPrice;
+            var unitPrice = (lineInput.CustomUnitPrice.HasValue && lineInput.CustomUnitPrice.Value > 0)
+                ? lineInput.CustomUnitPrice.Value
+                : prod.UnitPrice;
+
+            var productName = !string.IsNullOrWhiteSpace(lineInput.PortionName)
+                ? $"{prod.Name} ({lineInput.PortionName})"
+                : prod.Name;
+
             var vatRate = prod.VatRate;
-            var lineTotal = unitPrice * lineInput.Quantity;
-            var lineTax = lineTotal * (vatRate / 100m);
+            var lineTotal = lineInput.IsComplimentary ? 0.00m : (unitPrice * lineInput.Quantity);
+            var lineTax = lineInput.IsComplimentary ? 0.00m : (lineTotal * (vatRate / 100m));
+
+            var lineNotes = lineInput.Notes;
+            if (lineInput.IsComplimentary)
+            {
+                var reasonText = !string.IsNullOrWhiteSpace(lineInput.ComplimentaryReason)
+                    ? $"[İKRAM: {lineInput.ComplimentaryReason}]"
+                    : "[İKRAM]";
+                lineNotes = string.IsNullOrWhiteSpace(lineNotes) ? reasonText : $"{lineNotes} {reasonText}";
+            }
 
             // Determine routing station
             var primaryStationId = prod.StationRoutes.FirstOrDefault()?.KitchenStationId;
@@ -192,12 +211,15 @@ public class SessionsController : ControllerBase
                 OrderId = order.Id,
                 ProductId = prod.Id,
                 Quantity = lineInput.Quantity,
-                ProductNameSnapshot = prod.Name,
-                UnitPriceSnapshot = unitPrice,
+                ProductNameSnapshot = productName,
+                UnitPriceSnapshot = lineInput.IsComplimentary ? 0.00m : unitPrice,
                 VatRateSnapshot = vatRate,
                 LineTotal = lineTotal,
                 LineTax = lineTax,
-                Notes = lineInput.Notes,
+                Notes = lineNotes,
+                IsComplimentary = lineInput.IsComplimentary,
+                ComplimentaryReason = lineInput.ComplimentaryReason,
+                PortionName = lineInput.PortionName,
                 KitchenStationId = primaryStationId,
                 Status = OrderLineStatus.SentToKitchen
             };
@@ -301,6 +323,27 @@ public class SessionsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Reason))
         {
             return BadRequest("İptal gerekçesi belirtilmelidir.");
+        }
+
+        // Supervisor PIN Security Check for Waiters / Kitchen staff
+        var currentUser = await _db.Users.FindAsync(userId.Value);
+        if (currentUser != null && (currentUser.Role == UserRole.Waiter || currentUser.Role == UserRole.KitchenStaff))
+        {
+            if (string.IsNullOrWhiteSpace(request.SupervisorPin))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Garson hesabıyla satır iptali için Yönetici/Kasa PIN kodu gereklidir." });
+            }
+
+            var managers = await _db.Users
+                .Where(u => u.TenantId == tenantId.Value && u.IsActive &&
+                            (u.Role == UserRole.BranchManager || u.Role == UserRole.TenantOwner || u.Role == UserRole.PlatformAdmin))
+                .ToListAsync();
+
+            var isValid = managers.Any(m => _hasher.VerifyPin(request.SupervisorPin, m.PinCodeHash));
+            if (!isValid)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Geçersiz Yönetici PIN kodu! İptal işlemi onaylanmadı." });
+            }
         }
 
         var session = await _db.TableSessions
@@ -580,6 +623,154 @@ public class SessionsController : ControllerBase
         return Ok(MapToDetail(session));
     }
 
+    [HttpPost("{id}/merge")]
+    public async Task<ActionResult<SessionDetailDto>> MergeSession(Guid id, [FromBody] MergeTableRequest request)
+    {
+        var tenantId = _tenantService.TenantId;
+        var branchId = _tenantService.BranchId;
+        var userId = _tenantService.UserId;
+        if (!tenantId.HasValue || !branchId.HasValue || !userId.HasValue) return BadRequest();
+
+        var sourceSession = await _db.TableSessions
+            .Include(s => s.DiningTable)
+            .Include(s => s.Orders).ThenInclude(o => o.OrderLines)
+            .Include(s => s.Payments).ThenInclude(p => p.PaymentMethod)
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId.Value && s.Status == SessionStatus.Open);
+
+        if (sourceSession == null) return NotFound("Kaynak açık adisyon bulunamadı.");
+
+        if (sourceSession.DiningTableId == request.TargetTableId)
+        {
+            return BadRequest("Aynı masayı kendisiyle birleştiremezsiniz.");
+        }
+
+        var targetTable = await _db.DiningTables
+            .FirstOrDefaultAsync(t => t.Id == request.TargetTableId && t.TenantId == tenantId.Value && t.BranchId == branchId.Value);
+
+        if (targetTable == null) return NotFound("Hedef masa bulunamadı.");
+
+        var targetSession = await _db.TableSessions
+            .Include(s => s.DiningTable)
+            .Include(s => s.Orders).ThenInclude(o => o.OrderLines)
+            .Include(s => s.Payments).ThenInclude(p => p.PaymentMethod)
+            .FirstOrDefaultAsync(s => s.DiningTableId == targetTable.Id && s.TenantId == tenantId.Value && s.Status == SessionStatus.Open);
+
+        if (targetSession == null)
+        {
+            return BadRequest($"Hedef masada ({targetTable.TableNumber}) açık bir adisyon bulunamadı. Birleştirme için hedef masanın dolu olması gerekir.");
+        }
+
+        var sourceTable = sourceSession.DiningTable;
+        var fromTableNum = sourceTable?.TableNumber ?? "Bilinmeyen";
+
+        // Move orders from source to target
+        foreach (var order in sourceSession.Orders.ToList())
+        {
+            order.TableSessionId = targetSession.Id;
+            order.TableSession = targetSession;
+            targetSession.Orders.Add(order);
+        }
+
+        // Move payments from source to target
+        foreach (var payment in sourceSession.Payments.ToList())
+        {
+            payment.TableSessionId = targetSession.Id;
+            payment.TableSession = targetSession;
+            targetSession.Payments.Add(payment);
+        }
+
+        // Mark source session as Merged & free source table
+        sourceSession.Status = SessionStatus.Merged;
+        sourceSession.ClosedAtUtc = DateTime.UtcNow;
+        if (sourceTable != null)
+        {
+            sourceTable.Status = TableStatus.Empty;
+        }
+
+        // Target table remains Occupied
+        targetTable.Status = TableStatus.Occupied;
+
+        // Recalculate target session totals
+        RecalculateSessionTotals(targetSession);
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            TenantId = tenantId.Value,
+            BranchId = branchId.Value,
+            UserId = userId.Value,
+            Action = "TablesMerged",
+            EntityName = "TableSession",
+            EntityId = targetSession.Id,
+            DetailsJson = JsonSerializer.Serialize(new
+            {
+                fromTable = fromTableNum,
+                toTable = targetTable.TableNumber,
+                sourceSessionId = sourceSession.Id,
+                targetSessionId = targetSession.Id
+            }),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "local"
+        });
+
+        await _db.SaveChangesAsync();
+
+        if (sourceTable != null)
+        {
+            await _orderHub.Clients.Group($"branch_{branchId.Value}").SendAsync("TableStatusChanged", new { tableId = sourceTable.Id, status = TableStatus.Empty, sessionId = (Guid?)null });
+        }
+        await _orderHub.Clients.Group($"branch_{branchId.Value}").SendAsync("TableStatusChanged", new { tableId = targetTable.Id, status = TableStatus.Occupied, sessionId = targetSession.Id });
+
+        return Ok(MapToDetail(targetSession));
+    }
+
+    [HttpPost("{id}/discount")]
+    public async Task<ActionResult<SessionDetailDto>> ApplyDiscount(Guid id, [FromBody] ApplyDiscountRequest request)
+    {
+        var tenantId = _tenantService.TenantId;
+        var branchId = _tenantService.BranchId;
+        var userId = _tenantService.UserId;
+        if (!tenantId.HasValue || !branchId.HasValue || !userId.HasValue) return BadRequest();
+
+        var session = await _db.TableSessions
+            .Include(s => s.DiningTable)
+            .Include(s => s.Orders).ThenInclude(o => o.OrderLines)
+            .Include(s => s.Payments).ThenInclude(p => p.PaymentMethod)
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId.Value && s.Status == SessionStatus.Open);
+
+        if (session == null) return NotFound("Açık adisyon bulunamadı.");
+
+        decimal discount = 0m;
+        if (request.Percentage.HasValue && request.Percentage.Value > 0)
+        {
+            var pct = Math.Min(100m, request.Percentage.Value);
+            discount = Math.Round(session.SubTotal * (pct / 100m), 2);
+        }
+        else if (request.FixedAmount.HasValue && request.FixedAmount.Value > 0)
+        {
+            discount = Math.Min(session.SubTotal, request.FixedAmount.Value);
+        }
+
+        session.DiscountTotal = discount;
+        RecalculateSessionTotals(session);
+
+        _db.AuditLogs.Add(new AuditLog
+        {
+            TenantId = tenantId.Value,
+            BranchId = branchId.Value,
+            UserId = userId.Value,
+            Action = "DiscountApplied",
+            EntityName = "TableSession",
+            EntityId = session.Id,
+            DetailsJson = JsonSerializer.Serialize(new { session.DiscountTotal, request.Reason }),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "local"
+        });
+
+        await _db.SaveChangesAsync();
+
+        await _orderHub.Clients.Group($"branch_{branchId.Value}").SendAsync("SessionUpdated", new { sessionId = session.Id });
+
+        return Ok(MapToDetail(session));
+    }
+
     private static void RecalculateSessionTotals(TableSession session)
     {
         var allLines = session.Orders
@@ -587,9 +778,9 @@ public class SessionsController : ControllerBase
             .Where(l => l.Status != OrderLineStatus.Voided)
             .ToList();
 
-        session.SubTotal = allLines.Sum(l => l.UnitPriceSnapshot * l.Quantity);
+        session.SubTotal = allLines.Sum(l => l.LineTotal);
         session.TaxTotal = allLines.Sum(l => l.LineTax);
-        session.GrandTotal = session.SubTotal; // Tax is typically included in menu prices in TR
+        session.GrandTotal = Math.Max(0m, session.SubTotal - session.DiscountTotal);
         session.RemainingTotal = Math.Max(0m, session.GrandTotal - session.PaidTotal);
     }
 
@@ -625,7 +816,10 @@ public class SessionsController : ControllerBase
                     l.KitchenStationId,
                     l.KitchenStation?.Name,
                     l.Status,
-                    l.VoidReason
+                    l.VoidReason,
+                    l.IsComplimentary,
+                    l.ComplimentaryReason,
+                    l.PortionName
                 )).ToList(),
                 o.Notes
             )).ToList(),

@@ -127,6 +127,7 @@ public class Product : BranchScopedEntity
     public string? ImageUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsAvailable { get; set; } = true; // In-stock toggle
+    public string? PortionsJson { get; set; }
 
     public Category? Category { get; set; }
     public ICollection<ProductStationRoute> StationRoutes { get; set; } = new List<ProductStationRoute>();
@@ -174,6 +175,9 @@ public class OrderLine : BranchScopedEntity
     public decimal LineTax { get; set; } = 0.00m;
 
     public string? Notes { get; set; }
+    public bool IsComplimentary { get; set; } = false;
+    public string? ComplimentaryReason { get; set; }
+    public string? PortionName { get; set; }
     public Guid? KitchenStationId { get; set; }
     public OrderLineStatus Status { get; set; } = OrderLineStatus.New;
     public string? VoidReason { get; set; }

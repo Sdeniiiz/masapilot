@@ -48,6 +48,12 @@ export interface Category {
   productCount: number;
 }
 
+export interface ProductPortion {
+  name: string;
+  price: number;
+  isDefault?: boolean;
+}
+
 export interface Product {
   id: string;
   categoryId: string;
@@ -62,6 +68,7 @@ export interface Product {
   isActive: boolean;
   isAvailable: boolean;
   stationRouteIds: string[];
+  portions?: ProductPortion[];
 }
 
 export interface CartLine {
@@ -70,6 +77,9 @@ export interface CartLine {
   unitPrice: number;
   quantity: number;
   notes?: string;
+  isComplimentary?: boolean;
+  complimentaryReason?: string;
+  portionName?: string;
 }
 
 export interface SessionDetail {
@@ -111,6 +121,9 @@ export interface OrderLineSummary {
   stationName?: string;
   status: OrderLineStatus;
   voidReason?: string;
+  isComplimentary?: boolean;
+  complimentaryReason?: string;
+  portionName?: string;
 }
 
 export interface PaymentMethod {

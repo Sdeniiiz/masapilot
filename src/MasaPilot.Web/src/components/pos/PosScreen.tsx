@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
-import { Area, DiningTable, Category, Product, SessionDetail, CartLine, PaymentMethod, NoteTemplate } from '../../types';
+import { Area, DiningTable, Category, Product, SessionDetail, CartLine, PaymentMethod, NoteTemplate, ProductPortion } from '../../types';
 import {
   Search,
   Plus,
@@ -15,7 +15,12 @@ import {
   CreditCard,
   AlertCircle,
   FileText,
-  Check
+  Check,
+  Percent,
+  Layers,
+  Lock,
+  Utensils,
+  Users
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 
@@ -65,6 +70,29 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   const [isMoveTableModalOpen, setIsMoveTableModalOpen] = useState(false);
   const [targetTableId, setTargetTableId] = useState('');
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+
+  // Merge Table Modal
+  const [isMergeTableModalOpen, setIsMergeTableModalOpen] = useState(false);
+  const [mergeTargetTableId, setMergeTargetTableId] = useState('');
+  const [isSubmittingMerge, setIsSubmittingMerge] = useState(false);
+
+  // Discount Modal
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
+  const [discountValue, setDiscountValue] = useState('');
+  const [discountReason, setDiscountReason] = useState('Müdür İndirimi');
+  const [isSubmittingDiscount, setIsSubmittingDiscount] = useState(false);
+
+  // Void Supervisor PIN
+  const [voidSupervisorPin, setVoidSupervisorPin] = useState('');
+
+  // Portions Modal
+  const [isPortionModalOpen, setIsPortionModalOpen] = useState(false);
+  const [portionProduct, setPortionProduct] = useState<Product | null>(null);
+
+  // Split Bill / Payment Enhancements
+  const [selectedSplitLineIds, setSelectedSplitLineIds] = useState<string[]>([]);
+  const [cashGivenAmount, setCashGivenAmount] = useState('');
 
   // Compute suggested next table number based on selected area
   const suggestedTableNumber = useMemo(() => {
@@ -174,39 +202,72 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   };
 
   // Cart operations
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = (product: Product, portion?: ProductPortion) => {
     if (!product.isAvailable) return;
+
+    if (!portion && product.portions && product.portions.length > 0) {
+      setPortionProduct(product);
+      setIsPortionModalOpen(true);
+      return;
+    }
+
+    const price = portion ? portion.price : product.unitPrice;
+    const name = portion ? `${product.name} (${portion.name})` : product.name;
+    const portionName = portion?.name;
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === product.id);
+      const existing = prev.find(
+        (item) => item.productId === product.id && item.portionName === portionName
+      );
       if (existing) {
         return prev.map((item) =>
-          item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item === existing ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
       return [
         ...prev,
         {
           productId: product.id,
-          productName: product.name,
-          unitPrice: product.unitPrice,
+          productName: name,
+          unitPrice: price,
           quantity: 1,
+          portionName,
         },
       ];
     });
+
+    setIsPortionModalOpen(false);
   };
 
-  const handleUpdateCartQuantity = (productId: string, delta: number) => {
+  const handleUpdateCartQuantity = (productId: string, delta: number, portionName?: string) => {
     setCart((prev) => {
-      return prev
-        .map((item) => {
-          if (item.productId === productId) {
-            const newQty = item.quantity + delta;
-            return newQty > 0 ? { ...item, quantity: newQty } : null;
-          }
-          return item;
-        })
-        .filter(Boolean) as CartLine[];
+      const targetIndex = prev.findIndex((item) =>
+        item.productId === productId && (portionName !== undefined ? item.portionName === portionName : true)
+      );
+      if (targetIndex === -1) return prev;
+
+      const newQty = prev[targetIndex].quantity + delta;
+      if (newQty <= 0) {
+        return prev.filter((_, idx) => idx !== targetIndex);
+      }
+      return prev.map((item, idx) => (idx === targetIndex ? { ...item, quantity: newQty } : item));
     });
+  };
+
+  const handleToggleComplimentary = (item: CartLine) => {
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c === item) {
+          const isComp = !c.isComplimentary;
+          return {
+            ...c,
+            isComplimentary: isComp,
+            complimentaryReason: isComp ? (c.complimentaryReason || 'Müdür İkramı') : undefined,
+          };
+        }
+        return c;
+      })
+    );
   };
 
   const handleClearCart = () => {
@@ -263,8 +324,9 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
 
   // Product quantity in cart
   const getProductCartCount = (productId: string) => {
-    const item = cart.find((c) => c.productId === productId);
-    return item ? item.quantity : 0;
+    return cart
+      .filter((c) => c.productId === productId)
+      .reduce((sum, c) => sum + c.quantity, 0);
   };
 
   // Send Order to Kitchen ("Tamam" or "Mutfağa Gönder")
@@ -275,7 +337,15 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
       const idempotencyKey = `order_${activeSession.id}_${Date.now()}`;
       const updatedSession = await api.addOrder(
         activeSession.id,
-        cart.map((c) => ({ productId: c.productId, quantity: c.quantity, notes: c.notes })),
+        cart.map((c) => ({
+          productId: c.productId,
+          quantity: c.quantity,
+          notes: c.notes,
+          isComplimentary: c.isComplimentary,
+          complimentaryReason: c.complimentaryReason,
+          portionName: c.portionName,
+          customUnitPrice: c.unitPrice,
+        })),
         idempotencyKey,
         orderNote.trim() || undefined
       );
@@ -305,26 +375,136 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   const handleOpenVoidModal = (lineId: string) => {
     setLineToVoidId(lineId);
     setVoidReason('');
+    setVoidSupervisorPin('');
     setIsVoidModalOpen(true);
   };
 
   const handleConfirmVoid = async () => {
     if (!activeSession || !lineToVoidId || !voidReason.trim()) return;
     try {
-      const updatedSession = await api.voidLine(activeSession.id, lineToVoidId, voidReason);
+      const updatedSession = await api.voidLine(
+        activeSession.id,
+        lineToVoidId,
+        voidReason,
+        voidSupervisorPin.trim() || undefined
+      );
       setActiveSession(updatedSession);
       setIsVoidModalOpen(false);
       setLineToVoidId(null);
+      setVoidSupervisorPin('');
       await loadTables();
     } catch (err) {
       console.error('İptal yapılamadı:', err);
     }
   };
 
+  // Discount
+  const handleApplyDiscount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeSession) return;
+    const val = parseFloat(discountValue);
+    if (isNaN(val) || val <= 0) return;
+
+    try {
+      setIsSubmittingDiscount(true);
+      const data =
+        discountType === 'percentage'
+          ? { percentage: val, reason: discountReason }
+          : { fixedAmount: val, reason: discountReason };
+
+      const updated = await api.applyDiscount(activeSession.id, data);
+      setActiveSession(updated);
+      setIsDiscountModalOpen(false);
+      setDiscountValue('');
+    } catch (err) {
+      console.error('İndirim uygulanamadı:', err);
+    } finally {
+      setIsSubmittingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = async () => {
+    if (!activeSession) return;
+    try {
+      setIsSubmittingDiscount(true);
+      const updated = await api.applyDiscount(activeSession.id, { fixedAmount: 0, reason: 'İndirim kaldırıldı' });
+      setActiveSession(updated);
+      setIsDiscountModalOpen(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingDiscount(false);
+    }
+  };
+
+  // Merge Tables
+  const handleMergeTables = async () => {
+    if (!activeSession || !mergeTargetTableId || isSubmittingMerge) return;
+    try {
+      setIsSubmittingMerge(true);
+      const updated = await api.mergeSessions(activeSession.id, mergeTargetTableId);
+      setIsMergeTableModalOpen(false);
+
+      const areaList = await api.getAreas();
+      setAreas(areaList);
+      const allTables = areaList.flatMap((a) => a.tables);
+      const targetT = allTables.find((t) => t.id === mergeTargetTableId);
+      if (targetT) {
+        setSelectedTable(targetT);
+        setActiveSession(updated);
+      }
+      setMergeTargetTableId('');
+    } catch (err) {
+      console.error('Masa birleştirme başarısız:', err);
+    } finally {
+      setIsSubmittingMerge(false);
+    }
+  };
+
+  // Split Payment
+  const handleToggleSplitLine = (lineId: string) => {
+    setSelectedSplitLineIds((prev) => {
+      const isSelected = prev.includes(lineId);
+      const next = isSelected ? prev.filter((id) => id !== lineId) : [...prev, lineId];
+
+      if (activeSession) {
+        const allLines = activeSession.orders.flatMap((o) => o.lines).filter((l) => l.status !== 'Voided');
+        const selectedSum = allLines
+          .filter((l) => next.includes(l.id))
+          .reduce((sum, l) => sum + l.lineTotal, 0);
+
+        if (next.length > 0) {
+          setPaymentAmount(Math.min(activeSession.remainingTotal, selectedSum).toFixed(2));
+        } else {
+          setPaymentAmount(activeSession.remainingTotal.toFixed(2));
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleSplitByPerson = (count: number) => {
+    if (!activeSession) return;
+    const splitVal = Math.round((activeSession.remainingTotal / count) * 100) / 100;
+    setPaymentAmount(splitVal.toFixed(2));
+    setSelectedSplitLineIds([]);
+  };
+
+  const changeAmount = useMemo(() => {
+    const given = parseFloat(cashGivenAmount);
+    const toPay = parseFloat(paymentAmount);
+    if (!isNaN(given) && !isNaN(toPay) && given > toPay) {
+      return (given - toPay).toFixed(2);
+    }
+    return null;
+  }, [cashGivenAmount, paymentAmount]);
+
   // Payment
   const handleOpenPaymentModal = () => {
     if (!activeSession) return;
     setPaymentAmount(activeSession.remainingTotal.toFixed(2));
+    setSelectedSplitLineIds([]);
+    setCashGivenAmount('');
     setIsPaymentModalOpen(true);
   };
 
@@ -389,7 +569,10 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
     selectedCategoryId === 'all'
       ? { id: 'all', name: 'Tüm Ürünler' }
       : categories.find((c) => c.id === selectedCategoryId);
-  const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart]);
+  const cartTotal = useMemo(
+    () => cart.reduce((sum, item) => sum + (item.isComplimentary ? 0 : item.unitPrice * item.quantity), 0),
+    [cart]
+  );
   const totalAmount = (activeSession?.grandTotal || 0) + cartTotal;
 
   return (
@@ -540,6 +723,14 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                 <ArrowRightLeft className="w-3.5 h-3.5" />
                 Masaya taşı
               </button>
+
+              <button
+                onClick={() => setIsMergeTableModalOpen(true)}
+                className="flex items-center gap-1 hover:underline text-amber-800"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Masayı birleştir
+              </button>
             </div>
 
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -632,9 +823,15 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                             <span className="text-sm font-bold text-amber-600">
                               ₺{p.unitPrice.toFixed(2)}
                             </span>
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/60">
-                              1,5
-                            </span>
+                            {p.portions && p.portions.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCart(p)}
+                                className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition"
+                              >
+                                Porsiyonlar ({p.portions.length})
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -686,13 +883,38 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                 {/* 1. Unsent items in cart */}
                 {cart.map((item) => (
                   <div
-                    key={item.productId}
-                    className="p-3.5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-2.5"
+                    key={`${item.productId}-${item.portionName || 'default'}-${item.isComplimentary ? 'comp' : 'std'}`}
+                    className={`p-3.5 rounded-2xl border shadow-xs space-y-2.5 ${
+                      item.isComplimentary
+                        ? 'border-emerald-300 bg-emerald-50/40'
+                        : 'border-slate-200/90 bg-white'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="font-bold text-slate-900 text-xs">{item.productName}</div>
-                      <div className="font-bold text-slate-900 text-xs">
-                        ₺{(item.unitPrice * item.quantity).toFixed(2)}
+                      <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
+                        <span>{item.productName}</span>
+                        {item.portionName && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                            {item.portionName}
+                          </span>
+                        )}
+                        {item.isComplimentary && (
+                          <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            İKRAM
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-bold text-slate-900 text-xs shrink-0">
+                        {item.isComplimentary ? (
+                          <div className="text-right">
+                            <span className="line-through text-slate-400 mr-1.5 text-[11px]">
+                              ₺{(item.unitPrice * item.quantity).toFixed(2)}
+                            </span>
+                            <span className="text-emerald-700 font-bold">₺0.00</span>
+                          </div>
+                        ) : (
+                          `₺${(item.unitPrice * item.quantity).toFixed(2)}`
+                        )}
                       </div>
                     </div>
                     <div className="text-[11px] text-slate-400 font-medium">
@@ -730,19 +952,30 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                       {/* Quantity pill */}
                       <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 px-1 py-0.5">
                         <button
-                          onClick={() => handleUpdateCartQuantity(item.productId, -1)}
+                          onClick={() => handleUpdateCartQuantity(item.productId, -1, item.portionName)}
                           className="p-1 hover:bg-slate-200 rounded text-slate-600"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
                         <span className="px-2 text-xs font-black text-slate-900">{item.quantity}</span>
                         <button
-                          onClick={() => handleUpdateCartQuantity(item.productId, 1)}
+                          onClick={() => handleUpdateCartQuantity(item.productId, 1, item.portionName)}
                           className="p-1 hover:bg-slate-200 rounded text-slate-600"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
+
+                      {/* İkram toggle checkbox */}
+                      <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded-lg border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={!!item.isComplimentary}
+                          onChange={() => handleToggleComplimentary(item)}
+                          className="rounded text-amber-600 focus:ring-amber-500 w-3.5 h-3.5"
+                        />
+                        <span>İkram</span>
+                      </label>
 
                       {/* Not Ekle / Değiştir butonu */}
                       <button
@@ -760,7 +993,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
 
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleUpdateCartQuantity(item.productId, -item.quantity)}
+                          onClick={() => handleUpdateCartQuantity(item.productId, -item.quantity, item.portionName)}
                           className="text-slate-400 hover:text-rose-600 p-1"
                           title="Ürünü sepetten çıkar"
                         >
@@ -829,6 +1062,16 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                                 <div className="flex-1 pr-2">
                                   <span className="font-bold">{line.quantity}x </span>
                                   <span>{line.productName}</span>
+                                  {line.portionName && (
+                                    <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                      {line.portionName}
+                                    </span>
+                                  )}
+                                  {line.isComplimentary && (
+                                    <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      İKRAM {line.complimentaryReason ? `(${line.complimentaryReason})` : ''}
+                                    </span>
+                                  )}
                                   {line.notes && (
                                     <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/90 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium">
                                       📝 {line.notes}
@@ -880,11 +1123,31 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                   </span>
                 </div>
 
+                {activeSession && activeSession.discountTotal > 0 && (
+                  <div className="flex items-center justify-between text-xs text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-200">
+                    <div className="flex items-center gap-1.5">
+                      <span>İndirim</span>
+                      <button
+                        type="button"
+                        onClick={handleRemoveDiscount}
+                        className="text-[11px] text-rose-600 hover:underline font-semibold ml-1"
+                      >
+                        (Kaldır)
+                      </button>
+                    </div>
+                    <span>-₺{activeSession.discountTotal.toFixed(2)}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
                     <span>Toplam</span>
-                    <button className="text-xs text-rose-600 hover:underline font-semibold">
-                      İndirim
+                    <button
+                      type="button"
+                      onClick={() => setIsDiscountModalOpen(true)}
+                      className="text-xs text-rose-600 hover:underline font-semibold"
+                    >
+                      {activeSession?.discountTotal ? 'İndirimi Düzenle' : 'İndirim'}
                     </button>
                   </div>
                   <div className="text-2xl font-black text-slate-900">
@@ -945,9 +1208,10 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
       <Modal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
-        title="Hesap Tahsilatı & Kapatma"
+        title="Hesap Tahsilatı & Parçalı Ödeme"
       >
-        <div className="space-y-4">
+        <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+          {/* Kalan Bakiye Bilgisi */}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex justify-between items-center text-sm">
             <span className="text-slate-600 font-medium">Kalan Bakiye:</span>
             <span className="text-2xl font-black text-slate-900">
@@ -955,6 +1219,108 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             </span>
           </div>
 
+          {/* Alman Usulü / Kişi Başına Bölüş */}
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-1.5">
+              <Users className="w-3.5 h-3.5 text-amber-600" />
+              <span>Alman Usulü (Kişi Sayısına Böl):</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeSession) {
+                    setPaymentAmount(activeSession.remainingTotal.toFixed(2));
+                    setSelectedSplitLineIds([]);
+                  }
+                }}
+                className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition"
+              >
+                Tamamı
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSplitByPerson(2)}
+                className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition"
+              >
+                1/2 (2 Kişi)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSplitByPerson(3)}
+                className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition"
+              >
+                1/3 (3 Kişi)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSplitByPerson(4)}
+                className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition"
+              >
+                1/4 (4 Kişi)
+              </button>
+            </div>
+          </div>
+
+          {/* Ürün Seçerek Ödeme (Parçalı Tahsilat) */}
+          {activeSession && activeSession.orders.flatMap((o) => o.lines).filter((l) => l.status !== 'Voided').length > 0 && (
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Utensils className="w-3.5 h-3.5 text-amber-600" />
+                  Ürün Seçerek Öde:
+                </span>
+                {selectedSplitLineIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSplitLineIds([]);
+                      if (activeSession) {
+                        setPaymentAmount(activeSession.remainingTotal.toFixed(2));
+                      }
+                    }}
+                    className="text-[11px] text-rose-600 hover:underline font-semibold"
+                  >
+                    Seçimi Temizle
+                  </button>
+                )}
+              </div>
+              <div className="max-h-40 overflow-y-auto space-y-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                {activeSession.orders
+                  .flatMap((o) => o.lines)
+                  .filter((l) => l.status !== 'Voided')
+                  .map((line) => {
+                    const isChecked = selectedSplitLineIds.includes(line.id);
+                    return (
+                      <label
+                        key={line.id}
+                        className={`flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition select-none ${
+                          isChecked
+                            ? 'bg-amber-100/70 border border-amber-300 font-bold text-amber-950'
+                            : 'bg-white border border-slate-200 hover:bg-slate-100/60 text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleToggleSplitLine(line.id)}
+                            className="rounded text-amber-600 focus:ring-amber-500 w-3.5 h-3.5"
+                          />
+                          <span>
+                            {line.quantity}x {line.productName}
+                            {line.portionName ? ` (${line.portionName})` : ''}
+                          </span>
+                        </div>
+                        <span className="font-bold">₺{line.lineTotal.toFixed(2)}</span>
+                      </label>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Ödeme Yöntemi */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Ödeme Yöntemi</label>
             <div className="grid grid-cols-2 gap-2">
@@ -965,7 +1331,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                   onClick={() => setSelectedPaymentMethodId(m.id)}
                   className={`p-3 rounded-xl border text-xs font-bold text-left transition ${
                     selectedPaymentMethodId === m.id
-                      ? 'border-burgundy-800 bg-rose-50 text-burgundy-900'
+                      ? 'border-burgundy-800 bg-rose-50 text-burgundy-900 ring-2 ring-burgundy-800'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -975,6 +1341,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             </div>
           </div>
 
+          {/* Tahsil Edilecek Tutar */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Tahsil Edilecek Tutar (₺)</label>
             <input
@@ -986,7 +1353,50 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             />
           </div>
 
-          <div className="flex gap-2 pt-2">
+          {/* Hızlı Nakit & Para Üstü */}
+          <div className="p-3 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+              <span>Hızlı Nakit Girişi & Para Üstü</span>
+              {cashGivenAmount && (
+                <button
+                  type="button"
+                  onClick={() => setCashGivenAmount('')}
+                  className="text-[10px] text-amber-700 hover:text-rose-600 hover:underline"
+                >
+                  Temizle
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {[100, 200, 500, 1000].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setCashGivenAmount(val.toString())}
+                  className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  ₺{val}
+                </button>
+              ))}
+            </div>
+            <div>
+              <input
+                type="number"
+                placeholder="Müşteriden alınan nakit (₺)..."
+                value={cashGivenAmount}
+                onChange={(e) => setCashGivenAmount(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+            {changeAmount !== null && (
+              <div className="p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 flex items-center justify-between text-xs font-bold text-emerald-900">
+                <span>Para Üstü Verilecek:</span>
+                <span className="text-sm font-black">₺{changeAmount}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-2 border-t border-slate-100">
             <button
               onClick={() => setIsPaymentModalOpen(false)}
               className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100"
@@ -995,9 +1405,12 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             </button>
             <button
               onClick={handleProcessPayment}
-              className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm shadow-md transition"
+              disabled={!selectedPaymentMethodId || !paymentAmount || parseFloat(paymentAmount) <= 0}
+              className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm shadow-md transition disabled:opacity-50"
             >
-              Hesabı Kapat
+              {activeSession && parseFloat(paymentAmount) < activeSession.remainingTotal
+                ? 'Parçalı Ödemeyi Al'
+                : 'Hesabı Kapat'}
             </button>
           </div>
         </div>
@@ -1012,17 +1425,57 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
         <div className="space-y-4">
           <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-medium flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <span>İptal gerekçesi sisteme kalıcı olarak kaydedilecektir.</span>
+            <span>İptal gerekçesi ve iptal eden yetkili PIN doğrulaması sistem loglarına kalıcı kaydedilir.</span>
+          </div>
+
+          {/* Hızlı İptal Nedenleri */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Hızlı İptal Nedeni:</label>
+            <div className="flex flex-wrap gap-1.5">
+              {['Müşteri Vazgeçti', 'Hatalı Giriş', 'Mutfak Gecikmesi', 'Zayi / Kalite'].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setVoidReason(r)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                    voidReason === r
+                      ? 'bg-rose-700 text-white border-rose-700 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">İptal Gerekçesi *</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">İptal Gerekçesi / Açıklama *</label>
             <textarea
-              rows={3}
-              placeholder="Örn: Müşteri siparişi değiştirdi..."
+              rows={2}
+              placeholder="Örn: Müşteri siparişi iptal etmek istedi..."
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+              className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+
+          {/* 4 Haneli Yönetici PIN'i */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+              <Lock className="w-3.5 h-3.5 text-amber-600" />
+              <span>Yönetici PIN Kodu (Yetkili Onayı)</span>
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Garson veya Mutfak rolüyle satır iptal etmek için 4 haneli müdür/yönetici PIN'i girilmelidir. (Varsayılan: 1234)
+            </div>
+            <input
+              type="password"
+              maxLength={6}
+              value={voidSupervisorPin}
+              onChange={(e) => setVoidSupervisorPin(e.target.value)}
+              placeholder="•••• (Yönetici PIN)"
+              className="w-full px-3 py-2 text-center text-base tracking-widest font-black rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500"
             />
           </div>
 
@@ -1039,6 +1492,249 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
               className="flex-1 py-2.5 rounded-xl bg-burgundy-800 text-white font-bold text-sm hover:bg-burgundy-900 disabled:opacity-50"
             >
               İptali Onayla
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL: İndirim Uygula */}
+      <Modal
+        isOpen={isDiscountModalOpen}
+        onClose={() => setIsDiscountModalOpen(false)}
+        title="Masaya İndirim Uygula"
+      >
+        <form onSubmit={handleApplyDiscount} className="space-y-4">
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+            Adisyon ara toplamı: <strong>₺{(activeSession?.subTotal || 0).toFixed(2)}</strong>.
+            İndirim uygulandığında toplam bakiye anında güncellenir.
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">İndirim Türü:</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDiscountType('percentage')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                  discountType === 'percentage'
+                    ? 'border-burgundy-800 bg-rose-50 text-burgundy-900 ring-2 ring-burgundy-800'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Percent className="w-3.5 h-3.5" />
+                <span>Yüzde (%) İndirim</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiscountType('fixed')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                  discountType === 'fixed'
+                    ? 'border-burgundy-800 bg-rose-50 text-burgundy-900 ring-2 ring-burgundy-800'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span>₺ Sabit Tutar</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {discountType === 'percentage' ? 'İndirim Oranı (%)' : 'İndirim Tutarı (₺)'}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max={discountType === 'percentage' ? 100 : activeSession?.subTotal || 9999}
+              required
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              placeholder={discountType === 'percentage' ? 'Örn: 10' : 'Örn: 50'}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-burgundy-800"
+            />
+          </div>
+
+          {/* Hızlı Neden Seçimi */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">İndirim Gerekçesi:</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {['Müdür İndirimi', 'Personel İndirimi', 'Müşteri Memnuniyeti', 'Açılış / Kampanya'].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setDiscountReason(r)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                    discountReason === r
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={discountReason}
+              onChange={(e) => setDiscountReason(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-burgundy-800"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsDiscountModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-100"
+            >
+              Vazgeç
+            </button>
+            {activeSession && activeSession.discountTotal > 0 && (
+              <button
+                type="button"
+                onClick={handleRemoveDiscount}
+                disabled={isSubmittingDiscount}
+                className="px-3 py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs"
+              >
+                İndirimi Kaldır
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={isSubmittingDiscount || !discountValue}
+              className="flex-1 py-2.5 rounded-xl bg-burgundy-800 hover:bg-burgundy-900 text-white font-bold text-xs shadow-xs disabled:opacity-50"
+            >
+              {isSubmittingDiscount ? 'Uygulanıyor...' : 'İndirimi Uygula'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MODAL: Masayı Birleştir */}
+      <Modal
+        isOpen={isMergeTableModalOpen}
+        onClose={() => setIsMergeTableModalOpen(false)}
+        title={`Masayı Birleştir – ${selectedTable?.tableNumber || ''}`}
+      >
+        <div className="space-y-4">
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+            <strong>Masa {selectedTable?.tableNumber}</strong> adisyonundaki tüm siparişler seçtiğiniz hedef masaya aktarılacak ve bu masa <strong>Boşaltılacaktır</strong>.
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-2">
+              Hangi Dolu Masayla Birleştirmek İstiyorsunuz?
+            </label>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
+              {areas
+                .flatMap((a) => a.tables)
+                .filter((t) => t.id !== selectedTable?.id && t.status === 'Occupied')
+                .sort((a, b) =>
+                  a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
+                )
+                .map((t) => {
+                  const isSelected = mergeTargetTableId === t.id;
+                  return (
+                    <button
+                      type="button"
+                      key={t.id}
+                      onClick={() => setMergeTargetTableId(t.id)}
+                      className={`p-3 rounded-xl border text-center transition flex flex-col items-center justify-center gap-1 ${
+                        isSelected
+                          ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-600 shadow-xs'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-sm font-black text-slate-800">{t.tableNumber}</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                        ₺{t.activeSessionTotal ? t.activeSessionTotal.toFixed(2) : '0.00'}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+            {areas.flatMap((a) => a.tables).filter((t) => t.id !== selectedTable?.id && t.status === 'Occupied').length === 0 && (
+              <div className="text-center py-6 text-xs text-slate-400">
+                Birleştirilebilecek başka dolu masa bulunamadı.
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsMergeTableModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-100"
+            >
+              Vazgeç
+            </button>
+            <button
+              type="button"
+              disabled={!mergeTargetTableId || isSubmittingMerge}
+              onClick={handleMergeTables}
+              className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
+            >
+              {isSubmittingMerge ? 'Birleştiriliyor...' : 'Masaları Birleştir'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MODAL: Porsiyon / Varyant Seçimi */}
+      <Modal
+        isOpen={isPortionModalOpen}
+        onClose={() => setIsPortionModalOpen(false)}
+        title={portionProduct ? `${portionProduct.name} – Porsiyon Seçimi` : 'Porsiyon Seçimi'}
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-slate-600">
+            Lütfen istediğiniz porsiyon veya porsiyon büyüklüğünü seçiniz:
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Standart taban porsiyon */}
+            {portionProduct && (
+              <button
+                type="button"
+                onClick={() => portionProduct && handleAddToCart(portionProduct, { name: 'Standart Porsiyon', price: portionProduct.unitPrice })}
+                className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-amber-400 hover:bg-amber-50/50 transition flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Standart (1 Porsiyon)</div>
+                  <div className="text-[11px] text-slate-400">Klasik taban porsiyon</div>
+                </div>
+                <div className="text-sm font-black text-amber-600">
+                  ₺{portionProduct.unitPrice.toFixed(2)}
+                </div>
+              </button>
+            )}
+
+            {portionProduct?.portions?.map((prt) => (
+              <button
+                key={prt.name}
+                type="button"
+                onClick={() => portionProduct && handleAddToCart(portionProduct, prt)}
+                className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-amber-400 hover:bg-amber-50/50 transition flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-xs font-bold text-slate-900">{prt.name}</div>
+                  <div className="text-[11px] text-slate-400">Porsiyon seçeneği</div>
+                </div>
+                <div className="text-sm font-black text-amber-600">
+                  ₺{prt.price.toFixed(2)}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsPortionModalOpen(false)}
+              className="py-2 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-100"
+            >
+              Vazgeç
             </button>
           </div>
         </div>

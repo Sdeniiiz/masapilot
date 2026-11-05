@@ -108,7 +108,8 @@ public class MenuController : ControllerBase
             p.ImageUrl,
             p.IsActive,
             p.IsAvailable,
-            p.StationRoutes.Select(r => r.KitchenStationId).ToList()
+            p.StationRoutes.Select(r => r.KitchenStationId).ToList(),
+            !string.IsNullOrWhiteSpace(p.PortionsJson) ? System.Text.Json.JsonSerializer.Deserialize<List<ProductPortionDto>>(p.PortionsJson) : null
         )).ToList();
 
         return Ok(result);
@@ -137,7 +138,10 @@ public class MenuController : ControllerBase
             Barcode = request.Barcode,
             ImageUrl = request.ImageUrl,
             IsActive = true,
-            IsAvailable = true
+            IsAvailable = true,
+            PortionsJson = request.Portions != null && request.Portions.Any()
+                ? System.Text.Json.JsonSerializer.Serialize(request.Portions)
+                : null
         };
 
         if (request.StationRouteIds != null)
@@ -169,7 +173,8 @@ public class MenuController : ControllerBase
             product.ImageUrl,
             product.IsActive,
             product.IsAvailable,
-            product.StationRoutes.Select(r => r.KitchenStationId).ToList()
+            product.StationRoutes.Select(r => r.KitchenStationId).ToList(),
+            request.Portions
         ));
     }
 
@@ -196,6 +201,9 @@ public class MenuController : ControllerBase
         product.IsAvailable = request.IsAvailable;
         product.Sku = request.Sku;
         product.Barcode = request.Barcode;
+        product.PortionsJson = request.Portions != null && request.Portions.Any()
+            ? System.Text.Json.JsonSerializer.Serialize(request.Portions)
+            : null;
         if (!string.IsNullOrEmpty(request.ImageUrl)) product.ImageUrl = request.ImageUrl;
 
         // Update station routes
@@ -230,7 +238,8 @@ public class MenuController : ControllerBase
             product.ImageUrl,
             product.IsActive,
             product.IsAvailable,
-            request.StationRouteIds ?? new List<Guid>()
+            request.StationRouteIds ?? new List<Guid>(),
+            request.Portions
         ));
     }
 

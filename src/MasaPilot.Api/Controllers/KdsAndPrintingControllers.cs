@@ -84,6 +84,7 @@ public class KdsController : ControllerBase
                 ProductName = l.ProductNameSnapshot,
                 Quantity = l.Quantity,
                 Notes = l.Notes,
+                IsComplimentary = l.IsComplimentary,
                 Status = l.Status.ToString(),
                 StationName = l.KitchenStation?.Name ?? "Genel"
             }).ToList()

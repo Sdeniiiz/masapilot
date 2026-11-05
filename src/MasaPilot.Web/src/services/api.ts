@@ -217,11 +217,42 @@ class ApiClient {
     return res;
   }
 
+  async mergeSessions(sessionId: string, targetTableId: string): Promise<SessionDetail> {
+    const res = await this.request<SessionDetail>(`/sessions/${sessionId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ targetTableId }),
+    });
+    this.notify('success', 'Masalar başarıyla birleştirildi.');
+    return res;
+  }
+
+  async applyDiscount(sessionId: string, data: { percentage?: number; fixedAmount?: number; reason?: string }): Promise<SessionDetail> {
+    const res = await this.request<SessionDetail>(`/sessions/${sessionId}/discount`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    this.notify('success', 'İndirim uygulandı.');
+    return res;
+  }
+
   async getSession(sessionId: string): Promise<SessionDetail> {
     return this.request<SessionDetail>(`/sessions/${sessionId}`);
   }
 
-  async addOrder(sessionId: string, lines: { productId: string; quantity: number; notes?: string }[], idempotencyKey?: string, orderNotes?: string): Promise<SessionDetail> {
+  async addOrder(
+    sessionId: string,
+    lines: {
+      productId: string;
+      quantity: number;
+      notes?: string;
+      isComplimentary?: boolean;
+      complimentaryReason?: string;
+      portionName?: string;
+      customUnitPrice?: number;
+    }[],
+    idempotencyKey?: string,
+    orderNotes?: string
+  ): Promise<SessionDetail> {
     const res = await this.request<SessionDetail>(`/sessions/${sessionId}/orders`, {
       method: 'POST',
       body: JSON.stringify({ tableSessionId: sessionId, lines, idempotencyKey, orderNotes }),
@@ -230,10 +261,10 @@ class ApiClient {
     return res;
   }
 
-  async voidLine(sessionId: string, lineId: string, reason: string): Promise<SessionDetail> {
+  async voidLine(sessionId: string, lineId: string, reason: string, supervisorPin?: string): Promise<SessionDetail> {
     const res = await this.request<SessionDetail>(`/sessions/${sessionId}/void-line/${lineId}`, {
       method: 'POST',
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, supervisorPin }),
     });
     this.notify('info', 'Satır iptal edildi.');
     return res;

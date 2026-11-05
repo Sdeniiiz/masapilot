@@ -155,10 +155,12 @@ using (var scope = app.Services.CreateScope())
                 cmd.CommandText = @"ALTER TABLE ""Orders"" ADD COLUMN ""Notes"" TEXT;";
                 cmd.ExecuteNonQuery();
             }
-            catch
-            {
-                // Column already exists
-            }
+            catch { }
+
+            try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""IsComplimentary"" INTEGER NOT NULL DEFAULT 0;"; cmd.ExecuteNonQuery(); } catch { }
+            try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""ComplimentaryReason"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
+            try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""PortionName"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
+            try { cmd.CommandText = @"ALTER TABLE ""Products"" ADD COLUMN ""PortionsJson"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
         }
 
         // Seed authentic Galip Usta Pide Salonu default admin, branch, tables and menu

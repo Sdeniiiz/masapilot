@@ -160,6 +160,11 @@ export const KdsScreen: React.FC = () => {
                             <div className="text-base font-black text-white flex items-center gap-2">
                               <span className="text-brand-400">{line.quantity}x</span>
                               <span>{line.productName}</span>
+                              {line.isComplimentary && (
+                                <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 uppercase tracking-wider">
+                                  İKRAM
+                                </span>
+                              )}
                             </div>
 
                             {line.notes && (

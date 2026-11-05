@@ -29,21 +29,26 @@ public record CreateTableRequest(Guid AreaFloorId, string TableNumber, int Capac
 public record CategoryDto(Guid Id, string Name, int DisplayOrder, string ColorHex, bool IsActive, int ProductCount);
 public record CreateCategoryRequest(string Name, int DisplayOrder = 0, string ColorHex = "#3B82F6");
 
-public record ProductDto(Guid Id, Guid CategoryId, string CategoryName, string Name, string Description, string? Sku, string? Barcode, decimal UnitPrice, decimal VatRate, string? ImageUrl, bool IsActive, bool IsAvailable, List<Guid> StationRouteIds);
-public record CreateProductRequest(Guid CategoryId, string Name, string Description, decimal UnitPrice, decimal VatRate = 10m, string? Sku = null, string? Barcode = null, string? ImageUrl = null, List<Guid>? StationRouteIds = null);
-public record UpdateProductRequest(Guid CategoryId, string Name, string Description, decimal UnitPrice, decimal VatRate, bool IsActive, bool IsAvailable, string? Sku = null, string? Barcode = null, string? ImageUrl = null, List<Guid>? StationRouteIds = null);
+public record ProductPortionDto(string Name, decimal Price, bool IsDefault = false);
+
+public record ProductDto(Guid Id, Guid CategoryId, string CategoryName, string Name, string Description, string? Sku, string? Barcode, decimal UnitPrice, decimal VatRate, string? ImageUrl, bool IsActive, bool IsAvailable, List<Guid> StationRouteIds, List<ProductPortionDto>? Portions = null);
+public record CreateProductRequest(Guid CategoryId, string Name, string Description, decimal UnitPrice, decimal VatRate = 10m, string? Sku = null, string? Barcode = null, string? ImageUrl = null, List<Guid>? StationRouteIds = null, List<ProductPortionDto>? Portions = null);
+public record UpdateProductRequest(Guid CategoryId, string Name, string Description, decimal UnitPrice, decimal VatRate, bool IsActive, bool IsAvailable, string? Sku = null, string? Barcode = null, string? ImageUrl = null, List<Guid>? StationRouteIds = null, List<ProductPortionDto>? Portions = null);
 
 public record OpenSessionRequest(Guid DiningTableId, string? Notes = null);
 public record TransferTableRequest(Guid TargetTableId);
+public record MergeTableRequest(Guid TargetTableId);
+public record ApplyDiscountRequest(decimal? Percentage = null, decimal? FixedAmount = null, string? Reason = null);
+
 public record SessionDetailDto(Guid Id, Guid? DiningTableId, string? TableNumber, string SessionNumber, DateTime OpenedAtUtc, SessionStatus Status, decimal SubTotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal, decimal PaidTotal, decimal RemainingTotal, List<OrderSummaryDto> Orders, List<PaymentSummaryDto> Payments);
 
 public record AddOrderRequest(Guid TableSessionId, List<OrderLineInput> Lines, string? IdempotencyKey = null, string? OrderNotes = null);
-public record OrderLineInput(Guid ProductId, decimal Quantity, string? Notes = null);
+public record OrderLineInput(Guid ProductId, decimal Quantity, string? Notes = null, bool IsComplimentary = false, string? ComplimentaryReason = null, string? PortionName = null, decimal? CustomUnitPrice = null);
 
 public record OrderSummaryDto(Guid Id, string OrderNumber, DateTime CreatedAtUtc, OrderStatus Status, List<OrderLineSummaryDto> Lines, string? Notes = null);
-public record OrderLineSummaryDto(Guid Id, Guid ProductId, string ProductName, decimal Quantity, decimal UnitPrice, decimal VatRate, decimal LineTotal, string? Notes, Guid? KitchenStationId, string? StationName, OrderLineStatus Status, string? VoidReason);
+public record OrderLineSummaryDto(Guid Id, Guid ProductId, string ProductName, decimal Quantity, decimal UnitPrice, decimal VatRate, decimal LineTotal, string? Notes, Guid? KitchenStationId, string? StationName, OrderLineStatus Status, string? VoidReason, bool IsComplimentary = false, string? ComplimentaryReason = null, string? PortionName = null);
 
-public record VoidLineRequest(string Reason);
+public record VoidLineRequest(string Reason, string? SupervisorPin = null);
 
 public record PaymentMethodDto(Guid Id, string Name, PaymentType Type, bool IsActive);
 public record CreatePaymentRequest(Guid TableSessionId, Guid PaymentMethodId, decimal Amount, decimal TipAmount = 0.00m, string? Notes = null, string? IdempotencyKey = null);

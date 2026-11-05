@@ -299,6 +299,17 @@ public static class GalipUstaSeeder
                     IsAvailable = true
                 };
 
+                if (item.Price >= 200m)
+                {
+                    var portions = new List<Application.DTOs.ProductPortionDto>
+                    {
+                        new("1 Porsiyon", item.Price, IsDefault: true),
+                        new("1.5 Porsiyon", Math.Round(item.Price * 1.45m, 0)),
+                        new("Duble", Math.Round(item.Price * 1.85m, 0))
+                    };
+                    prod.PortionsJson = System.Text.Json.JsonSerializer.Serialize(portions);
+                }
+
                 if (stationId.HasValue)
                 {
                     prod.StationRoutes.Add(new ProductStationRoute

@@ -55,7 +55,9 @@ public class EscPosGenerator : IEscPosGenerator
 
         foreach (var line in lines)
         {
-            sb.AppendLine($"{line.Quantity,3:0.##} x {line.ProductNameSnapshot}");
+            var itemTitle = line.ProductNameSnapshot;
+            if (line.IsComplimentary) itemTitle += " **(İKRAM)**";
+            sb.AppendLine($"{line.Quantity,3:0.##} x {itemTitle}");
             if (!string.IsNullOrWhiteSpace(line.Notes))
             {
                 sb.AppendLine($"    >> NOT: {line.Notes}");
@@ -102,9 +104,10 @@ public class EscPosGenerator : IEscPosGenerator
 
         foreach (var line in lines)
         {
-            var name = line.ProductNameSnapshot.Length > 20
-                ? line.ProductNameSnapshot.Substring(0, 19)
-                : line.ProductNameSnapshot;
+            var baseName = line.IsComplimentary ? $"{line.ProductNameSnapshot} (IKRAM)" : line.ProductNameSnapshot;
+            var name = baseName.Length > 20
+                ? baseName.Substring(0, 19)
+                : baseName;
 
             sb.AppendLine(string.Format("{0,-20} {1,5:0.##} {2,12:C2}", name, line.Quantity, line.LineTotal));
         }
