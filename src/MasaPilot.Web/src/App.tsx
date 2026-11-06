@@ -15,6 +15,7 @@ import { MenuManageScreen } from './components/menu/MenuManageScreen';
 import { CategoriesManageScreen } from './components/categories/CategoriesManageScreen';
 import { UsersManageScreen } from './components/users/UsersManageScreen';
 import { NoteTemplatesScreen } from './components/notes/NoteTemplatesScreen';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -101,42 +102,44 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100">
-      {/* In-App Toast Container (Zero native alert/prompt/confirm) */}
-      <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
+    <ErrorBoundary>
+      <div className="min-h-screen flex flex-col bg-slate-100">
+        {/* In-App Toast Container (Zero native alert/prompt/confirm) */}
+        <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
 
-      {!user ? (
-        <LandingPage onAuthSuccess={(newUser) => setUser(newUser)} />
-      ) : (
-        <>
-          <Navbar
-            user={user}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            onLogout={handleLogout}
-            health={health}
-          />
+        {!user ? (
+          <LandingPage onAuthSuccess={(newUser) => setUser(newUser)} />
+        ) : (
+          <>
+            <Navbar
+              user={user}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              onLogout={handleLogout}
+              health={health}
+            />
 
-          <main className="flex-1 flex flex-col overflow-hidden">
-            {activeTab === 'dashboard' && <DashboardScreen onNavigate={setActiveTab} />}
-            {activeTab === 'pos' && <PosScreen />}
-            {activeTab === 'reports' && <ReportsScreen />}
-            {activeTab === 'menu-manage' && <MenuManageScreen />}
-            {activeTab === 'categories-manage' && <CategoriesManageScreen />}
-            {activeTab === 'users-manage' && <UsersManageScreen />}
-            {activeTab === 'note-templates' && <NoteTemplatesScreen />}
-            {activeTab === 'printers' && <PrintersScreen />}
-            {activeTab === 'kds' && <KdsScreen />}
-            {activeTab === 'shifts' && <ShiftsScreen />}
-            {activeTab === 'landing' && (
-              <div className="flex-1 overflow-y-auto">
-                <LandingPage onAuthSuccess={() => {}} />
-              </div>
-            )}
-          </main>
-        </>
-      )}
-    </div>
+            <main className="flex-1 flex flex-col overflow-hidden">
+              {activeTab === 'dashboard' && <DashboardScreen onNavigate={setActiveTab} />}
+              {activeTab === 'pos' && <PosScreen />}
+              {activeTab === 'reports' && <ReportsScreen />}
+              {activeTab === 'menu-manage' && <MenuManageScreen />}
+              {activeTab === 'categories-manage' && <CategoriesManageScreen />}
+              {activeTab === 'users-manage' && <UsersManageScreen />}
+              {activeTab === 'note-templates' && <NoteTemplatesScreen />}
+              {activeTab === 'printers' && <PrintersScreen />}
+              {activeTab === 'kds' && <KdsScreen />}
+              {activeTab === 'shifts' && <ShiftsScreen />}
+              {activeTab === 'landing' && (
+                <div className="flex-1 overflow-y-auto">
+                  <LandingPage onAuthSuccess={() => {}} />
+                </div>
+              )}
+            </main>
+          </>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 };
 

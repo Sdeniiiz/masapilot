@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
+import { signalRManager } from '../../services/signalr';
 import { Area, DiningTable, Category, Product, SessionDetail, CartLine, PaymentMethod, NoteTemplate, ProductPortion } from '../../types';
 import {
   Search,
@@ -177,7 +178,36 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   useEffect(() => {
     loadTables();
     loadMenu();
-  }, []);
+
+    // SignalR Real-Time Synchronization across PC, Mobile and Tablet
+    signalRManager.onTableStatusChanged(() => {
+      loadTables();
+    });
+
+    signalRManager.onOrderAdded((data: any) => {
+      loadTables();
+      if (activeSession && data?.sessionId === activeSession.id) {
+        api.getSession(activeSession.id).then((updated) => setActiveSession(updated)).catch(() => {});
+      }
+    });
+
+    signalRManager.onPaymentReceived((data: any) => {
+      loadTables();
+      if (activeSession && data?.sessionId === activeSession.id) {
+        api.getSession(activeSession.id).then((updated) => setActiveSession(updated)).catch(() => {});
+      }
+    });
+
+    // Fallback sync interval every 6 seconds for network resilience
+    const syncInterval = setInterval(() => {
+      loadTables();
+      if (activeSession) {
+        api.getSession(activeSession.id).then((updated) => setActiveSession(updated)).catch(() => {});
+      }
+    }, 6000);
+
+    return () => clearInterval(syncInterval);
+  }, [activeSession?.id]);
 
   // Table selection
   const handleSelectTable = async (table: DiningTable) => {
