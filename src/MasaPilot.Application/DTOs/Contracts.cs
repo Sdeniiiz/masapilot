@@ -46,12 +46,12 @@ public record AddOrderRequest(Guid TableSessionId, List<OrderLineInput> Lines, s
 public record OrderLineInput(Guid ProductId, decimal Quantity, string? Notes = null, bool IsComplimentary = false, string? ComplimentaryReason = null, string? PortionName = null, decimal? CustomUnitPrice = null);
 
 public record OrderSummaryDto(Guid Id, string OrderNumber, DateTime CreatedAtUtc, OrderStatus Status, List<OrderLineSummaryDto> Lines, string? Notes = null);
-public record OrderLineSummaryDto(Guid Id, Guid ProductId, string ProductName, decimal Quantity, decimal UnitPrice, decimal VatRate, decimal LineTotal, string? Notes, Guid? KitchenStationId, string? StationName, OrderLineStatus Status, string? VoidReason, bool IsComplimentary = false, string? ComplimentaryReason = null, string? PortionName = null);
+public record OrderLineSummaryDto(Guid Id, Guid ProductId, string ProductName, decimal Quantity, decimal UnitPrice, decimal VatRate, decimal LineTotal, string? Notes, Guid? KitchenStationId, string? StationName, OrderLineStatus Status, string? VoidReason, bool IsComplimentary = false, string? ComplimentaryReason = null, string? PortionName = null, bool IsPaid = false, Guid? PaymentId = null);
 
 public record VoidLineRequest(string Reason, string? SupervisorPin = null);
 
 public record PaymentMethodDto(Guid Id, string Name, PaymentType Type, bool IsActive);
-public record CreatePaymentRequest(Guid TableSessionId, Guid PaymentMethodId, decimal Amount, decimal TipAmount = 0.00m, string? Notes = null, string? IdempotencyKey = null);
+public record CreatePaymentRequest(Guid TableSessionId, Guid PaymentMethodId, decimal Amount, decimal TipAmount = 0.00m, string? Notes = null, string? IdempotencyKey = null, List<Guid>? PaidLineIds = null);
 public record PaymentSummaryDto(Guid Id, Guid PaymentMethodId, string PaymentMethodName, decimal Amount, decimal TipAmount, DateTime ProcessedAtUtc, PaymentStatus Status, string? Notes);
 
 public record KitchenStationDto(Guid Id, string Name, bool IsActive);

@@ -276,10 +276,10 @@ class ApiClient {
     return res;
   }
 
-  async addPayment(sessionId: string, paymentMethodId: string, amount: number, tipAmount = 0, idempotencyKey?: string): Promise<SessionDetail> {
+  async addPayment(sessionId: string, paymentMethodId: string, amount: number, tipAmount = 0, idempotencyKey?: string, paidLineIds?: string[]): Promise<SessionDetail> {
     const res = await this.request<SessionDetail>(`/sessions/${sessionId}/payments`, {
       method: 'POST',
-      body: JSON.stringify({ tableSessionId: sessionId, paymentMethodId, amount, tipAmount, idempotencyKey }),
+      body: JSON.stringify({ tableSessionId: sessionId, paymentMethodId, amount, tipAmount, idempotencyKey, paidLineIds }),
     });
     this.notify('success', `${amount.toFixed(2)} TL tahsilat kaydedildi.`);
     return res;

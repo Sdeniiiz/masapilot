@@ -178,6 +178,8 @@ public class OrderLine : BranchScopedEntity
     public bool IsComplimentary { get; set; } = false;
     public string? ComplimentaryReason { get; set; }
     public string? PortionName { get; set; }
+    public bool IsPaid { get; set; } = false;
+    public Guid? PaymentId { get; set; }
     public Guid? KitchenStationId { get; set; }
     public OrderLineStatus Status { get; set; } = OrderLineStatus.New;
     public string? VoidReason { get; set; }

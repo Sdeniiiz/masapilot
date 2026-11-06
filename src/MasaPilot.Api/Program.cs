@@ -160,6 +160,8 @@ using (var scope = app.Services.CreateScope())
             try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""IsComplimentary"" INTEGER NOT NULL DEFAULT 0;"; cmd.ExecuteNonQuery(); } catch { }
             try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""ComplimentaryReason"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
             try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""PortionName"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
+            try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""IsPaid"" INTEGER NOT NULL DEFAULT 0;"; cmd.ExecuteNonQuery(); } catch { }
+            try { cmd.CommandText = @"ALTER TABLE ""OrderLines"" ADD COLUMN ""PaymentId"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
             try { cmd.CommandText = @"ALTER TABLE ""Products"" ADD COLUMN ""PortionsJson"" TEXT;"; cmd.ExecuteNonQuery(); } catch { }
         }
 

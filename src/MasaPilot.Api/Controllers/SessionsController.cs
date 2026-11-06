@@ -520,6 +520,21 @@ public class SessionsController : ControllerBase
         session.PaidTotal += request.Amount;
         session.RemainingTotal = Math.Max(0m, session.GrandTotal - session.PaidTotal);
 
+        // Mark individual order lines as paid if specified
+        if (request.PaidLineIds != null && request.PaidLineIds.Any())
+        {
+            var linesToMarkPaid = session.Orders
+                .SelectMany(o => o.OrderLines)
+                .Where(l => request.PaidLineIds.Contains(l.Id) && !l.IsPaid && l.Status != OrderLineStatus.Voided)
+                .ToList();
+
+            foreach (var line in linesToMarkPaid)
+            {
+                line.IsPaid = true;
+                line.PaymentId = payment.Id;
+            }
+        }
+
         // Auto close session if remaining balance is settled
         if (session.RemainingTotal <= 0.00m)
         {
@@ -819,7 +834,9 @@ public class SessionsController : ControllerBase
                     l.VoidReason,
                     l.IsComplimentary,
                     l.ComplimentaryReason,
-                    l.PortionName
+                    l.PortionName,
+                    l.IsPaid,
+                    l.PaymentId
                 )).ToList(),
                 o.Notes
             )).ToList(),

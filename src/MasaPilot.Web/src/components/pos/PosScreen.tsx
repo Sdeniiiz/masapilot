@@ -70,11 +70,13 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
   // Move Table Modal
   const [isMoveTableModalOpen, setIsMoveTableModalOpen] = useState(false);
   const [targetTableId, setTargetTableId] = useState('');
+  const [moveTableFilter, setMoveTableFilter] = useState<'all' | 'empty' | 'occupied'>('all');
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
 
   // Merge Table Modal
   const [isMergeTableModalOpen, setIsMergeTableModalOpen] = useState(false);
   const [mergeTargetTableId, setMergeTargetTableId] = useState('');
+  const [mergeModalFilter, setMergeModalFilter] = useState<'occupied' | 'all'>('occupied');
   const [isSubmittingMerge, setIsSubmittingMerge] = useState(false);
 
   // Discount Modal
@@ -498,8 +500,11 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
       const next = isSelected ? prev.filter((id) => id !== lineId) : [...prev, lineId];
 
       if (activeSession) {
-        const allLines = activeSession.orders.flatMap((o) => o.lines).filter((l) => l.status !== 'Voided');
-        const selectedSum = allLines
+        const allUnpaidLines = activeSession.orders
+          .flatMap((o) => o.lines)
+          .filter((l) => l.status !== 'Voided' && !l.isPaid);
+
+        const selectedSum = allUnpaidLines
           .filter((l) => next.includes(l.id))
           .reduce((sum, l) => sum + l.lineTotal, 0);
 
@@ -550,9 +555,11 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
         selectedPaymentMethodId,
         amount,
         0,
-        idempotencyKey
+        idempotencyKey,
+        selectedSplitLineIds.length > 0 ? selectedSplitLineIds : undefined
       );
 
+      setSelectedSplitLineIds([]);
       setIsPaymentModalOpen(false);
       setActiveSession(updatedSession);
 
@@ -594,6 +601,37 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
       a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
     );
   }, [areas, selectedAreaId]);
+
+  // Candidate tables for Move Modal (all tables except currently selected)
+  const moveCandidateTables = useMemo(() => {
+    return (areas || [])
+      .flatMap((a) => (a.tables || []).map((t) => ({ ...t, areaName: a.name })))
+      .filter((t) => t.id !== selectedTable?.id)
+      .sort((a, b) =>
+        a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
+  }, [areas, selectedTable?.id]);
+
+  const filteredMoveTables = useMemo(() => {
+    if (moveTableFilter === 'empty') return moveCandidateTables.filter((t) => t.status === 'Empty');
+    if (moveTableFilter === 'occupied') return moveCandidateTables.filter((t) => t.status !== 'Empty');
+    return moveCandidateTables;
+  }, [moveCandidateTables, moveTableFilter]);
+
+  // Candidate tables for Merge Modal (all tables except currently selected)
+  const mergeCandidateTables = useMemo(() => {
+    return (areas || [])
+      .flatMap((a) => (a.tables || []).map((t) => ({ ...t, areaName: a.name })))
+      .filter((t) => t.id !== selectedTable?.id)
+      .sort((a, b) =>
+        a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
+      );
+  }, [areas, selectedTable?.id]);
+
+  const filteredMergeTables = useMemo(() => {
+    if (mergeModalFilter === 'occupied') return mergeCandidateTables.filter((t) => t.status === 'Occupied');
+    return mergeCandidateTables;
+  }, [mergeCandidateTables, mergeModalFilter]);
 
   const activeCategory =
     selectedCategoryId === 'all'
@@ -747,7 +785,11 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
               </button>
 
               <button
-                onClick={() => setIsMoveTableModalOpen(true)}
+                onClick={() => {
+                  loadTables();
+                  setTargetTableId('');
+                  setIsMoveTableModalOpen(true);
+                }}
                 className="flex items-center gap-1 hover:underline"
               >
                 <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -755,7 +797,11 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
               </button>
 
               <button
-                onClick={() => setIsMergeTableModalOpen(true)}
+                onClick={() => {
+                  loadTables();
+                  setMergeTargetTableId('');
+                  setIsMergeTableModalOpen(true);
+                }}
                 className="flex items-center gap-1 hover:underline text-amber-800"
               >
                 <Layers className="w-3.5 h-3.5" />
@@ -1079,6 +1125,7 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                           )}
                           {ord.lines.map((line) => {
                             const isVoided = line.status === 'Voided';
+                            const isPaid = !!line.isPaid;
 
                             return (
                               <div
@@ -1086,12 +1133,14 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                                 className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
                                   isVoided
                                     ? 'bg-rose-50/50 border-rose-200 line-through text-slate-400'
+                                    : isPaid
+                                    ? 'bg-emerald-50/70 border-emerald-300 text-slate-800'
                                     : 'bg-slate-50/80 border-slate-200 text-slate-800'
                                 }`}
                               >
                                 <div className="flex-1 pr-2">
                                   <span className="font-bold">{line.quantity}x </span>
-                                  <span>{line.productName}</span>
+                                  <span className={isPaid ? 'font-medium' : ''}>{line.productName}</span>
                                   {line.portionName && (
                                     <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
                                       {line.portionName}
@@ -1100,6 +1149,11 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                                   {line.isComplimentary && (
                                     <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
                                       İKRAM {line.complimentaryReason ? `(${line.complimentaryReason})` : ''}
+                                    </span>
+                                  )}
+                                  {isPaid && (
+                                    <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-xs">
+                                      ✓ ÖDENDİ
                                     </span>
                                   )}
                                   {line.notes && (
@@ -1115,8 +1169,10 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                  <span className="font-bold">₺{line.lineTotal.toFixed(2)}</span>
-                                  {!isVoided && (
+                                  <span className={`font-bold ${isPaid ? 'text-emerald-700' : ''}`}>
+                                    ₺{line.lineTotal.toFixed(2)}
+                                  </span>
+                                  {!isVoided && !isPaid && (
                                     <button
                                       onClick={() => handleOpenVoidModal(line.id)}
                                       className="text-slate-400 hover:text-rose-600 p-0.5"
@@ -1321,6 +1377,28 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                   .filter((l) => l.status !== 'Voided')
                   .map((line) => {
                     const isChecked = selectedSplitLineIds.includes(line.id);
+                    const isPaid = !!line.isPaid;
+
+                    if (isPaid) {
+                      return (
+                        <div
+                          key={line.id}
+                          className="flex items-center justify-between p-2 rounded-lg text-xs bg-emerald-50/70 border border-emerald-200 text-slate-500 select-none opacity-80"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-3.5 h-3.5 flex items-center justify-center text-emerald-600 font-bold">✓</span>
+                            <span className="line-through">
+                              {line.quantity}x {line.productName}
+                              {line.portionName ? ` (${line.portionName})` : ''}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                            Ödendi (₺{line.lineTotal.toFixed(2)})
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <label
                         key={line.id}
@@ -1653,18 +1731,42 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-2">
-              Hangi Dolu Masayla Birleştirmek İstiyorsunuz?
-            </label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
-              {areas
-                .flatMap((a) => a.tables)
-                .filter((t) => t.id !== selectedTable?.id && t.status === 'Occupied')
-                .sort((a, b) =>
-                  a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
-                )
-                .map((t) => {
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-700">
+                Hedef Masayı Seçin:
+              </label>
+              <div className="flex gap-1 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setMergeModalFilter('occupied')}
+                  className={`px-2 py-0.5 rounded-lg border transition ${
+                    mergeModalFilter === 'occupied'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Dolu Masalar ({mergeCandidateTables.filter((t) => t.status === 'Occupied').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMergeModalFilter('all')}
+                  className={`px-2 py-0.5 rounded-lg border transition ${
+                    mergeModalFilter === 'all'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Tüm Masalar ({mergeCandidateTables.length})
+                </button>
+              </div>
+            </div>
+
+            {filteredMergeTables.length > 0 ? (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
+                {filteredMergeTables.map((t) => {
                   const isSelected = mergeTargetTableId === t.id;
+                  const isOccupied = t.status === 'Occupied';
+
                   return (
                     <button
                       type="button"
@@ -1677,16 +1779,38 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
                       }`}
                     >
                       <span className="text-sm font-black text-slate-800">{t.tableNumber}</span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                        ₺{t.activeSessionTotal ? t.activeSessionTotal.toFixed(2) : '0.00'}
+                      <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">
+                        {t.areaName}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          isOccupied ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        {isOccupied ? `₺${t.activeSessionTotal ? t.activeSessionTotal.toFixed(2) : '0.00'}` : 'Boş'}
                       </span>
                     </button>
                   );
                 })}
-            </div>
-            {areas.flatMap((a) => a.tables).filter((t) => t.id !== selectedTable?.id && t.status === 'Occupied').length === 0 && (
-              <div className="text-center py-6 text-xs text-slate-400">
-                Birleştirilebilecek başka dolu masa bulunamadı.
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                <div className="text-xs text-slate-700 font-bold">
+                  Şu anda açık başka bir DOLU masa bulunmuyor.
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Birleştirme işlemi, iki farklı dolu masanın siparişlerini tek masada toplar. Eğer bu masayı boş bir masaya geçirmek istiyorsanız "Masayı Taşı" özelliğini kullanabilirsiniz.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMergeTableModalOpen(false);
+                    setIsMoveTableModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-burgundy-800 hover:bg-burgundy-900 text-white font-bold text-xs shadow-xs transition"
+                >
+                  Boş Masaya Taşı
+                </button>
               </div>
             )}
           </div>
@@ -1702,10 +1826,19 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             <button
               type="button"
               disabled={!mergeTargetTableId || isSubmittingMerge}
-              onClick={handleMergeTables}
+              onClick={async () => {
+                const targetObj = mergeCandidateTables.find((t) => t.id === mergeTargetTableId);
+                if (targetObj && targetObj.status !== 'Occupied') {
+                  setTargetTableId(mergeTargetTableId);
+                  setIsMergeTableModalOpen(false);
+                  await handleTransferTable();
+                } else {
+                  await handleMergeTables();
+                }
+              }}
               className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
             >
-              {isSubmittingMerge ? 'Birleştiriliyor...' : 'Masaları Birleştir'}
+              {isSubmittingMerge ? 'İşleniyor...' : 'Masaları Birleştir'}
             </button>
           </div>
         </div>
@@ -1851,44 +1984,104 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-2">Hedef Masayı Seçin:</label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
-              {areas
-                .flatMap((a) => a.tables)
-                .filter((t) => t.id !== selectedTable?.id)
-                .sort((a, b) =>
-                  a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true, sensitivity: 'base' })
-                )
-                .map((t) => {
-                  const isSelected = targetTableId === t.id;
-                  const isEmpty = t.status === 'Empty';
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-700">Hedef Masayı Seçin:</label>
+              <div className="flex gap-1 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setMoveTableFilter('all')}
+                  className={`px-2 py-0.5 rounded-lg border transition ${
+                    moveTableFilter === 'all'
+                      ? 'bg-burgundy-800 text-white border-burgundy-800 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Tümü ({moveCandidateTables.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMoveTableFilter('empty')}
+                  className={`px-2 py-0.5 rounded-lg border transition ${
+                    moveTableFilter === 'empty'
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Boş ({moveCandidateTables.filter((t) => t.status === 'Empty').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMoveTableFilter('occupied')}
+                  className={`px-2 py-0.5 rounded-lg border transition ${
+                    moveTableFilter === 'occupied'
+                      ? 'bg-rose-700 text-white border-rose-700 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Dolu ({moveCandidateTables.filter((t) => t.status !== 'Empty').length})
+                </button>
+              </div>
+            </div>
 
-                  return (
-                    <button
-                      type="button"
-                      key={t.id}
-                      onClick={() => setTargetTableId(t.id)}
-                      className={`p-3 rounded-xl border text-center transition flex flex-col items-center justify-center gap-1 ${
-                        isSelected
-                          ? 'border-burgundy-800 bg-burgundy-50 ring-2 ring-burgundy-800'
-                          : isEmpty
-                          ? 'border-slate-200 bg-white hover:border-slate-300'
-                          : 'border-slate-200 bg-slate-50 opacity-60'
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-60 overflow-y-auto p-1">
+              {filteredMoveTables.map((t) => {
+                const isSelected = targetTableId === t.id;
+                const isEmpty = t.status === 'Empty';
+
+                return (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => setTargetTableId(t.id)}
+                    className={`p-3 rounded-xl border text-center transition flex flex-col items-center justify-center gap-1 ${
+                      isSelected
+                        ? isEmpty
+                          ? 'border-burgundy-800 bg-burgundy-50 ring-2 ring-burgundy-800 shadow-xs'
+                          : 'border-amber-600 bg-amber-50 ring-2 ring-amber-600 shadow-xs'
+                        : isEmpty
+                        ? 'border-slate-200 bg-white hover:border-slate-300'
+                        : 'border-amber-200 bg-amber-50/50 hover:bg-amber-100/60'
+                    }`}
+                  >
+                    <span className="text-sm font-black text-slate-800">{t.tableNumber}</span>
+                    <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">
+                      {t.areaName}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        isEmpty ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
                       }`}
                     >
-                      <span className="text-sm font-black text-slate-800">{t.tableNumber}</span>
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          isEmpty ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                        }`}
-                      >
-                        {isEmpty ? 'Boş' : 'Dolu'}
-                      </span>
-                    </button>
-                  );
-                })}
+                      {isEmpty ? 'Boş' : `Dolu (₺${t.activeSessionTotal ? t.activeSessionTotal.toFixed(2) : '0.00'})`}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+
+            {filteredMoveTables.length === 0 && (
+              <div className="text-center py-6 text-xs text-slate-400">
+                Seçilen filtreye uygun başka masa bulunamadı.
+              </div>
+            )}
           </div>
+
+          {targetTableId && (() => {
+            const targetObj = moveCandidateTables.find((t) => t.id === targetTableId);
+            if (targetObj && targetObj.status !== 'Empty') {
+              return (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>⚠️ Seçilen Masa Dolu ({targetObj.tableNumber})</span>
+                  </div>
+                  <div>
+                    Bu masada açık bir adisyon bulunuyor (₺{targetObj.activeSessionTotal?.toFixed(2)}). Aşağıdaki butona tıklayarak iki masanın adisyonunu doğrudan <strong>birleştirebilirsiniz</strong>.
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           <div className="flex gap-2 pt-3 border-t border-slate-100">
             <button
@@ -1900,11 +2093,28 @@ export const PosScreen: React.FC<PosScreenProps> = () => {
             </button>
             <button
               type="button"
-              disabled={!targetTableId || isSubmittingTransfer}
-              onClick={handleTransferTable}
+              disabled={!targetTableId || isSubmittingTransfer || isSubmittingMerge}
+              onClick={async () => {
+                const targetObj = moveCandidateTables.find((t) => t.id === targetTableId);
+                if (targetObj && targetObj.status !== 'Empty') {
+                  setMergeTargetTableId(targetTableId);
+                  setIsMoveTableModalOpen(false);
+                  await handleMergeTables();
+                } else {
+                  await handleTransferTable();
+                }
+              }}
               className="flex-1 py-2.5 rounded-xl bg-burgundy-800 hover:bg-burgundy-900 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
             >
-              {isSubmittingTransfer ? 'Taşınıyor...' : 'Masayı Taşı'}
+              {isSubmittingTransfer || isSubmittingMerge
+                ? 'İşleniyor...'
+                : (() => {
+                    const targetObj = moveCandidateTables.find((t) => t.id === targetTableId);
+                    if (targetObj && targetObj.status !== 'Empty') {
+                      return `Masa ${targetObj.tableNumber} ile Birleştir`;
+                    }
+                    return 'Masayı Taşı';
+                  })()}
             </button>
           </div>
         </div>

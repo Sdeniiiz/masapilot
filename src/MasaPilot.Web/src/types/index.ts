@@ -80,6 +80,8 @@ export interface CartLine {
   isComplimentary?: boolean;
   complimentaryReason?: string;
   portionName?: string;
+  isPaid?: boolean;
+  paymentId?: string;
 }
 
 export interface SessionDetail {
@@ -124,6 +126,8 @@ export interface OrderLineSummary {
   isComplimentary?: boolean;
   complimentaryReason?: string;
   portionName?: string;
+  isPaid?: boolean;
+  paymentId?: string;
 }
 
 export interface PaymentMethod {
